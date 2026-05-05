@@ -5,6 +5,7 @@ import { TierVerificationService } from "./services/tier-verification.service";
 import { TwoFactorRateLimitService } from "./services/two-factor-rate-limit.service";
 import { KycStateMachineService } from "./services/kyc-state-machine.service";
 import { IdentityResolutionService } from "./services/identity-resolution.service";
+import { IndividualKycStageService } from "./services/individual-kyc-stage.service";
 
 import { JwtModule } from "@nestjs/jwt";
 import { jwtSecret, TOKEN_EXPIRATION } from "@/config";
@@ -20,6 +21,7 @@ import { SessionModule } from "../session";
 import { UploadModule } from "@/modules/core/upload";
 import { CachingModule } from "@/modules/core/redisCache";
 import { SettingModule } from "../settings";
+import { NotificationModule } from "../notification/notification.module";
 
 export * from "./interfaces";
 export * from "./errors";
@@ -38,11 +40,27 @@ export * from "./errors";
         SessionModule,
         UploadModule,
         CachingModule,
+        forwardRef(() => NotificationModule),
         forwardRef(() => SettingModule),
     ],
     controllers: [AuthController, AdminAuthController],
-    providers: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
-    exports: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService],
+    providers: [
+        AuthService,
+        {
+            provide: "AUTH_SERVICE",
+            useExisting: AuthService,
+        },
+        AuthGuard,
+        SocketAuthGuard,
+        TierService,
+        TierVerificationService,
+        TwoFactorRateLimitService,
+        TwoFactorGuard,
+        KycStateMachineService,
+        IdentityResolutionService,
+        IndividualKycStageService,
+    ],
+    exports: [AuthService, AuthGuard, SocketAuthGuard, TierService, TierVerificationService, TwoFactorRateLimitService, TwoFactorGuard, KycStateMachineService, IdentityResolutionService, IndividualKycStageService],
 })
 export class AuthModule { }
 

@@ -2,19 +2,21 @@ import { Injectable, Logger, BadRequestException, Inject } from "@nestjs/common"
 import { PrismaService } from "@/modules/core/prisma/services";
 import { buildResponse, ApiResponse } from "@/utils/api-response-util";
 import { buildPaginationMeta } from "@/utils";
-import { DocumentVerificationStatus, IdentityIdType, KycStatus, KycVerificationType, Prisma, UserType } from "@prisma/client";
+import { DocumentVerificationStatus, IdentityIdType, KycAttemptEventType, KycAttemptStatus, KycStage, KycStatus, Prisma, UserType } from "@prisma/client";
 import { startOfMonth, endOfMonth, startOfWeek, endOfWeek, startOfDay, endOfDay, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
 import {
     GetKycQueueDto,
     KycDecisionDto,
+    AdminKycAttemptDecisionDto,
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
     ApproveDocumentDto,
     RejectDocumentDto,
-    RunKycVerificationLookupDto,
+    RunKycAttemptRecheckDto,
+    RunKycProviderLookupDto,
 } from "../dtos";
-import type { AdminKycVerificationLookupType } from "../dtos";
+import type { AdminKycProviderLookupType } from "../dtos";
 import { TierService } from "@/modules/api/auth/services/tier.service";
 import { KycStateMachineService } from "@/modules/api/auth/services/kyc-state-machine.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
@@ -27,13 +29,140 @@ import { cloudinaryConfig, emailTemplateConfig, imagekitConfig, mailConfig, COMP
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
 import { DojahService } from "@/modules/factory/identityCompliance/providers/dojah/services";
 import { validateAddressDocument, validateIncomeDocument } from "@/libs/ocr";
-import axios from "axios";
+import { request as httpsRequest } from "node:https";
+import {
+    buildIndividualVerificationSnapshot,
+    getCurrentIndividualStageAttempt,
+} from "@/modules/api/auth/utils/individual-kyc-stage-state.util";
 
 type KycQueueView = "ACTIONABLE" | "AWAITING_USER" | "RESOLVED" | "ALL";
 type KycDecisionAction = "APPROVE" | "REJECT" | "ESCALATE";
+type AdminKycAttemptAction = KycDecisionAction | "RECHECK";
+type AdminKycRecommendedDecision = "APPROVE" | "REVIEW" | "REJECT";
 type AdminLookupStatus = "SUCCESS" | "FAILED";
 type AdminLookupOutcome = "SUCCESS" | "PARTIAL_FAILURE" | "FAILED";
 type AdminLookupProvider = "DOJAH" | "OCR";
+type AdminKycTimestamp = Date | string;
+type AdminKycNullableTimestamp = AdminKycTimestamp | null;
+
+interface AdminKycAttemptSummary {
+    attemptId: number;
+    verificationType: string;
+    stage: string;
+    method: string | null;
+    status: string;
+    providerStatus: string | null;
+    attemptNo: number | null;
+    version: number | null;
+    submittedAt: AdminKycTimestamp;
+    reviewedAt: AdminKycNullableTimestamp;
+    reviewerId: number | null;
+    reviewNote: string | null;
+    providerRef?: string | null;
+    documentUrl?: string | null;
+    isActive?: boolean;
+    latestActivityAt?: AdminKycNullableTimestamp;
+    latestActivityType?: string | null;
+    latestActivityNote?: string | null;
+    latestActivityAdminId?: number | null;
+    queueReason: string | null;
+    recommendedDecision: AdminKycRecommendedDecision | null;
+    allowedActions: AdminKycAttemptAction[];
+}
+
+interface AdminKycAttemptEvidenceItem {
+    id: number;
+    kind: string;
+    label: string;
+    url: string;
+    mimeType: string | null;
+}
+
+interface AdminKycAttemptLookupHistoryItem {
+    historyRecordId: number;
+    outcome: AdminLookupOutcome;
+    lookedUpAt: string;
+    requestedByAdminId: number | null;
+    note: string | null;
+    results: AdminKycLookupResult[];
+}
+
+interface AdminKycAttemptDecisionHistoryItem {
+    action: string;
+    note: string | null;
+    adminId: number | null;
+    createdAt: AdminKycTimestamp;
+}
+
+interface AdminKycAuditHistoryItem {
+    source: "ATTEMPT_EVENT" | "AUDIT_LOG";
+    action: string;
+    verificationType: string | null;
+    eventType: string | null;
+    attemptId: number | null;
+    adminId: number | null;
+    note: string | null;
+    createdAt: AdminKycTimestamp;
+}
+
+interface AdminKycAttemptDetail {
+    attempt: AdminKycAttemptSummary | null;
+    extractedFields: Record<string, any> | null;
+    comparisonSummary: Record<string, any> | null;
+    evidenceSummary: Record<string, any> | null;
+    rawProviderResponse: any;
+    rawEvidence: AdminKycAttemptEvidenceItem[];
+    lookupHistory: AdminKycAttemptLookupHistoryItem[];
+    decisionHistory: AdminKycAttemptDecisionHistoryItem[];
+}
+
+const stageAttemptLookupSelect = Prisma.validator<Prisma.KycStageAttemptSelect>()({
+    id: true,
+    userId: true,
+    stage: true,
+    method: true,
+    attemptNo: true,
+    isCurrent: true,
+    status: true,
+    providerStatus: true,
+    reasonMessage: true,
+    evidenceSummary: true,
+    reviewNote: true,
+    reviewerId: true,
+    providerRef: true,
+    submittedAt: true,
+    reviewedAt: true,
+    version: true,
+    evidenceAssets: {
+        select: {
+            storageUrl: true,
+        },
+    },
+});
+
+type StageAttemptLookupRecord = Prisma.KycStageAttemptGetPayload<{
+    select: typeof stageAttemptLookupSelect;
+}>;
+
+type DecisionShadowAttempt = {
+    id: number;
+    journeyType: string;
+    stage: string;
+    status?: string | null;
+    providerRef?: string | null;
+    reviewerId?: number | null;
+    reviewNote?: string | null;
+    reviewedAt?: Date | null;
+    version?: number | null;
+};
+
+type AttemptEventLookupRecord = {
+    attemptId?: number | null;
+    stage?: string | null;
+    eventType?: string | null;
+    payload?: unknown;
+    providerRef?: string | null;
+};
 
 interface AdminKycLookupResult {
     key: string;
@@ -49,12 +178,23 @@ interface AdminKycLookupResult {
 
 interface PersistedAdminLookupHistoryPayload {
     source: "ADMIN_PROVIDER_LOOKUP";
-    lookupType: AdminKycVerificationLookupType;
+    lookupType: AdminKycProviderLookupType;
     outcome: AdminLookupOutcome;
     lookedUpAt: string;
     requestedByAdminId?: number;
-    activeVerificationId?: number | null;
+    attemptId?: number | null;
+    legacyHistoryRecordId?: number | null;
     results: AdminKycLookupResult[];
+}
+
+interface PersistedAdminDecisionEventPayload {
+    source: "ADMIN_DECISION";
+    verificationType: string;
+    action: KycDecisionAction;
+    auditAction: string;
+    note?: string | null;
+    attemptId?: number | null;
+    attemptVersion?: number | null;
 }
 
 type DojahLookupEntity = Record<string, any>;
@@ -120,11 +260,7 @@ export class KycService {
                     status: true,
                     bvn: true,
                     nin: true,
-                    isBvnVerified: true,
-                    isNinVerified: true,
                     isDocumentVerified: true,
-                    isAddressVerified: true,
-                    isIncomeVerified: true,
                     isEmailVerified: true,
                     isPhoneVerified: true,
                     businessDocumentsUploaded: true,
@@ -141,20 +277,52 @@ export class KycService {
                     businessDocument: true,
                     businessRecord: true,
                     addressDocumentUrl: true,
-                    addressVerificationStatus: true,
                     incomeDocumentUrl: true,
-                    incomeVerificationStatus: true,
-                    kycVerifications: {
-                        where: { isActive: true },
+                    kycStageAttempts: {
+                        where: {
+                            isCurrent: true,
+                            OR: [
+                                {
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                    },
+                                },
+                                {
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                },
+                            ],
+                        },
                         select: {
                             id: true,
-                            verificationType: true,
+                            stage: true,
+                            method: true,
+                            attemptNo: true,
+                            isCurrent: true,
                             status: true,
-                            submittedAt: true,
-                            reviewedAt: true,
+                            providerStatus: true,
+                            providerRef: true,
                             reviewNote: true,
                             reviewerId: true,
+                            submittedAt: true,
+                            reviewedAt: true,
                             version: true,
+                        },
+                    },
+                    kycAttemptEvents: {
+                        orderBy: { createdAt: "desc" },
+                        take: 10,
+                        select: {
+                            id: true,
+                            attemptId: true,
+                            stage: true,
+                            eventType: true,
+                            actorType: true,
+                            actorId: true,
+                            note: true,
+                            payload: true,
+                            createdAt: true,
                         },
                     },
                     createdAt: true,
@@ -169,33 +337,42 @@ export class KycService {
 
         // Enrich with verification status summary - use stored tier from database
         const enrichedUsers = users.map((user) => {
-            const queueMetadata = this.buildQueueMetadata(user, resolvedQueueView);
+            const {
+                isDocumentVerified,
+                isEmailVerified,
+                isPhoneVerified,
+                ...queueUser
+            } = user;
+            const normalizedUser = this.normalizeVerificationState(user);
+            const { verificationSnapshot } = normalizedUser;
+            const queueMetadata = this.buildQueueMetadata(normalizedUser, resolvedQueueView);
 
             return {
-                ...user,
+                ...queueUser,
+                emailVerified: normalizedUser.emailVerified,
+                phoneVerified: normalizedUser.phoneVerified,
+                documentVerified: normalizedUser.documentVerified,
                 // Use stored tier from database (not calculated) so admin resets persist
                 tier: user.tier ?? 0,
                 verificationSummary: {
-                    email: user.isEmailVerified,
-                    phone: user.isPhoneVerified,
-                    bvn: user.isBvnVerified,
-                    nin: user.isNinVerified,
-                    document: user.isDocumentVerified,
-                    address: user.isAddressVerified,
-                    income: user.isIncomeVerified,
+                    email: normalizedUser.emailVerified,
+                    phone: normalizedUser.phoneVerified,
+                    bvn: verificationSnapshot.bvnVerified,
+                    nin: verificationSnapshot.ninVerified,
+                    document: normalizedUser.documentVerified,
+                    address: verificationSnapshot.addressVerified,
+                    income: verificationSnapshot.incomeVerified,
                 },
-                pendingVerifications: queueMetadata.pendingVerifications,
                 needsReview: queueMetadata.needsReview,
-                kycVerificationStatuses: queueMetadata.kycVerificationStatuses,
                 queueView: resolvedQueueView,
                 queueReason: queueMetadata.queueReason,
-                actionableVerificationTypes: queueMetadata.actionableVerificationTypes,
                 blockingVerificationTypes: queueMetadata.blockingVerificationTypes,
                 oldestSubmittedAt: queueMetadata.oldestSubmittedAt,
-                latestReviewState: queueMetadata.latestReviewState,
                 latestReviewAt: queueMetadata.latestReviewAt,
-                currentVerificationVersion: queueMetadata.currentVerificationVersion,
                 queueSortAt: queueMetadata.queueSortAt,
+                activeAttempt: queueMetadata.activeAttempt,
+                latestAttempt: queueMetadata.latestAttempt,
+                actionableAttempts: queueMetadata.actionableAttempts,
             };
         });
 
@@ -221,21 +398,70 @@ export class KycService {
                 },
                 businessRecord: true,
                 accountLimit: true,
-                kycVerifications: {
+                kycStageAttempts: {
+                    where: {
+                        OR: [
+                            {
+                                journeyType: "INDIVIDUAL",
+                                stage: {
+                                    in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                },
+                            },
+                            {
+                                journeyType: "BUSINESS",
+                                stage: "BUSINESS_DOCUMENT",
+                            },
+                        ],
+                    },
                     orderBy: { submittedAt: "desc" },
                     select: {
                         id: true,
-                        verificationType: true,
+                        stage: true,
+                        method: true,
+                        attemptNo: true,
+                        isCurrent: true,
                         status: true,
-                        reviewNote: true,
-                        reviewedAt: true,
-                        reviewerId: true,
+                        providerStatus: true,
                         providerRef: true,
-                        providerRawResponse: true,
-                        documentUrl: true,
+                        reasonCode: true,
+                        reasonMessage: true,
+                        reasonDetails: true,
+                        extractedFields: true,
+                        comparisonSummary: true,
+                        evidenceSummary: true,
+                        reviewNote: true,
+                        reviewerId: true,
                         submittedAt: true,
+                        reviewedAt: true,
                         version: true,
-                        isActive: true,
+                        evidenceAssets: {
+                            select: {
+                                id: true,
+                                kind: true,
+                                storageUrl: true,
+                                originalName: true,
+                                mimeType: true,
+                                side: true,
+                            },
+                        },
+                    },
+                },
+                kycAttemptEvents: {
+                    orderBy: { createdAt: "desc" },
+                    select: {
+                        id: true,
+                        attemptId: true,
+                        journeyType: true,
+                        stage: true,
+                        eventType: true,
+                        actorType: true,
+                        actorId: true,
+                        providerName: true,
+                        providerStatus: true,
+                        providerRef: true,
+                        note: true,
+                        payload: true,
+                        createdAt: true,
                     },
                 },
                 order: {
@@ -269,6 +495,22 @@ export class KycService {
             orderBy: { createdAt: "desc" },
             take: 20,
         });
+        const auditHistory = this.buildAdminAuditHistory(user.kycAttemptEvents ?? [], auditLogs);
+
+        const attemptHistory = this.buildAttemptHistory(user);
+        const activeAttempts = this.buildCurrentAttemptSummaries(user);
+        const currentAttemptByVerificationType = activeAttempts.reduce<Record<string, AdminKycAttemptSummary>>((accumulator, attempt) => {
+            accumulator[attempt.verificationType] = attempt;
+            return accumulator;
+        }, {});
+        const attemptDetailsByVerificationType = this.buildAttemptDetailsByVerificationType({
+            user,
+            attemptHistory,
+            currentAttemptByVerificationType,
+            attemptRecordByVerificationType: this.buildAttemptRecordByVerificationType(user),
+            auditLogs,
+        });
+        const currentBusinessAttempt = currentAttemptByVerificationType.BUSINESS_DOCUMENT;
 
         return buildResponse({
             message: "KYC user detail retrieved successfully",
@@ -292,63 +534,161 @@ export class KycService {
                     dateOfBirth: user.dateOfBirth,
                     gender: user.gender,
                 },
-                verificationStatus: {
-                    email: { verified: user.isEmailVerified },
-                    phone: { verified: user.isPhoneVerified },
-                    bvn: { verified: user.isBvnVerified, submitted: !!user.bvn },
-                    nin: { verified: user.isNinVerified, submitted: !!user.nin },
-                    document: {
-                        verified: user.isDocumentVerified,
-                        submitted: !!user.userDocument,
-                        status: user.documentVerificationStatus,
-                        details: user.userDocument,
-                    },
-                    address: {
-                        verified: user.isAddressVerified,
-                        submitted: !!user.addressDocumentUrl,
-                        status: user.addressVerificationStatus,
-                        details: {
-                            documentUrl: user.addressDocumentUrl,
-                            residentialAddress: user.residentialAddress,
-                        },
-                    },
-                    income: {
-                        verified: user.isIncomeVerified,
-                        submitted: !!user.incomeDocumentUrl,
-                        status: user.incomeVerificationStatus,
-                        details: {
-                            documentUrl: user.incomeDocumentUrl,
-                        },
-                    },
-                    businessDocument: {
-                        verified: user.businessDocumentVerificationStatus === DocumentVerificationStatus.VERIFIED,
-                        submitted: user.businessDocumentsUploaded,
-                        status: user.businessDocumentVerificationStatus,
-                        details: user.businessDocument,
-                    },
-                },
                 businessInfo: user.userType === "BUSINESS" ? {
                     record: user.businessRecord,
                     documents: user.businessDocument,
-                    submitted: user.businessDocumentsUploaded,
-                    status: user.businessDocumentVerificationStatus,
+                    submitted: Boolean(currentBusinessAttempt || user.businessDocument),
+                    status: currentBusinessAttempt?.status ?? null,
                 } : null,
-                kycVerifications: user.kycVerifications.filter((record) => record.isActive),
-                kycVerificationHistory: user.kycVerifications,
+                activeAttempts,
+                attemptHistory,
+                currentAttemptByVerificationType,
+                attemptDetailsByVerificationType,
                 limits: user.accountLimit,
                 recentTransactions: user.order,
-                auditHistory: auditLogs,
+                auditHistory,
             },
         });
     }
 
-    async runVerificationLookup(dto: RunKycVerificationLookupDto, adminId?: number): Promise<ApiResponse> {
+    async processAttemptDecision(
+        attemptId: number,
+        dto: AdminKycAttemptDecisionDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
+        const attempt = await this.resolveAttemptContext(attemptId, dto.verificationType);
+
+        if (!attempt) {
+            return buildResponse({
+                message: "KYC attempt not found",
+                data: null,
+            });
+        }
+
+        const response = await this.processKycDecision(
+            {
+                userId: attempt.userId,
+                action: dto.action,
+                verificationType: attempt.verificationType,
+                version: dto.expectedVersion,
+                note: dto.note,
+            },
+            adminId,
+        );
+
+        if (!response?.data) {
+            return response;
+        }
+
+        const updatedAttempt = await this.getAttemptSummaryById(attempt.attemptId, attempt.verificationType);
+        const stage = updatedAttempt?.stage ?? attempt.stage;
+        const status = updatedAttempt?.status ?? response?.data?.status ?? null;
+
+        return buildResponse({
+            message: response.message,
+            data: {
+                attemptId: updatedAttempt?.attemptId ?? attempt.attemptId,
+                userId: attempt.userId,
+                verificationType: attempt.verificationType,
+                stage,
+                status,
+                reviewerId: updatedAttempt?.reviewerId ?? adminId ?? null,
+                reviewedAt: updatedAttempt?.reviewedAt ?? new Date().toISOString(),
+                version: updatedAttempt?.version ?? dto.expectedVersion,
+                nextAction: this.buildAdminAttemptNextAction(status, stage),
+                attempt: updatedAttempt,
+            },
+        });
+    }
+
+    async runAttemptVerificationLookup(
+        attemptId: number,
+        dto: RunKycAttemptRecheckDto,
+        adminId?: number,
+    ): Promise<ApiResponse> {
+        const attempt = await this.resolveAttemptContext(attemptId, dto.verificationType);
+
+        if (!attempt) {
+            return buildResponse({
+                message: "KYC attempt not found",
+                data: null,
+            });
+        }
+
+        this.ensureLookupProviderSupported(dto.provider, attempt.verificationType);
+
+        const response = await this.runProviderLookup(
+            {
+                userId: attempt.userId,
+                verificationType: attempt.verificationType as AdminKycProviderLookupType,
+            },
+            adminId,
+        );
+
+        if (!response?.data) {
+            return response;
+        }
+
+        const results = response.data.results ?? [];
+        const stage = attempt.stage;
+
+        return buildResponse({
+            message: response.message,
+            data: {
+            attemptId: attempt.attemptId,
+                userId: attempt.userId,
+                verificationType: attempt.verificationType,
+                stage,
+                provider: dto.provider,
+                providerStatus: this.resolveLookupOutcomeFromResults(results),
+                lookedUpAt: response.data.lookedUpAt,
+                historyRecordId: response.data.historyRecordId ?? null,
+                extractedFields: this.buildAttemptExtractedFieldsFromLookupResults(results),
+                comparisonSummary: this.buildAttemptComparisonSummaryFromLookupResults(results),
+                evidenceSummary: this.buildAttemptEvidenceSummaryFromLookupResults(attempt.verificationType, results),
+                nextAction: {
+                    type: "WAIT",
+                    stage,
+                    label: "Await admin review",
+                    message: `${attempt.verificationType} lookup saved to attempt history`,
+                },
+                results,
+            },
+        });
+    }
+
+    async runProviderLookup(dto: RunKycProviderLookupDto, adminId?: number): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: dto.userId },
             include: {
                 userDocument: true,
                 businessDocument: true,
                 businessRecord: true,
+                kycStageAttempts: {
+                    where: { isCurrent: true },
+                    select: {
+                        id: true,
+                        journeyType: true,
+                        stage: true,
+                        method: true,
+                        isCurrent: true,
+                        status: true,
+                        providerRef: true,
+                        version: true,
+                    },
+                },
+                kycAttemptEvents: {
+                    orderBy: { createdAt: "desc" },
+                    take: 25,
+                    select: {
+                        id: true,
+                        stage: true,
+                        eventType: true,
+                        providerRef: true,
+                        payload: true,
+                        createdAt: true,
+                    },
+                },
             },
         });
 
@@ -420,7 +760,7 @@ export class KycService {
                 outcome,
                 resultKeys: results.map((result) => result.key),
                 providerRefs: results.map((result) => result.providerRef).filter(Boolean),
-                kycVerificationHistoryId: persistedLookupRecord.id,
+                kycLookupHistoryId: persistedLookupRecord.id,
             },
         });
 
@@ -438,27 +778,15 @@ export class KycService {
 
     private async persistVerificationLookupHistory(
         user: any,
-        verificationType: AdminKycVerificationLookupType,
+        verificationType: AdminKycProviderLookupType,
         results: AdminKycLookupResult[],
         outcome: AdminLookupOutcome,
         lookedUpAt: string,
         adminId?: number,
     ): Promise<{ id: number }> {
-        const activeRecord = await this.prisma.kycVerification.findFirst({
-            where: {
-                userId: user.id,
-                verificationType: verificationType as KycVerificationType,
-                isActive: true,
-            },
-            orderBy: { version: "desc" },
-            select: {
-                id: true,
-                status: true,
-                version: true,
-                documentUrl: true,
-                providerRef: true,
-            },
-        });
+        const lookupMetadata = this.resolveLookupHistoryAttemptMetadata(user, verificationType);
+        const note = this.buildLookupHistoryNote(verificationType, outcome, results);
+        const providerRef = results.find((result) => result.providerRef)?.providerRef ?? lookupMetadata.providerRef;
 
         const payload: PersistedAdminLookupHistoryPayload = {
             source: "ADMIN_PROVIDER_LOOKUP",
@@ -466,44 +794,316 @@ export class KycService {
             outcome,
             lookedUpAt,
             requestedByAdminId: adminId,
-            activeVerificationId: activeRecord?.id ?? null,
+            attemptId: lookupMetadata.attemptId,
             results,
         };
 
-        return await this.prisma.kycVerification.create({
+        return await this.shadowWriteLookupAttemptEvent({
+            userId: user.id,
+            verificationType,
+            adminId,
+            outcome,
+            results,
+            note,
+            payload,
+            attemptId: lookupMetadata.attemptId,
+            currentStatus: lookupMetadata.currentStatus,
+            currentVersion: lookupMetadata.currentVersion,
+            providerRef,
+            lookedUpAt,
+        });
+    }
+
+    private resolveLookupHistoryAttemptMetadata(
+        user: any,
+        verificationType: AdminKycProviderLookupType,
+    ): {
+        attemptId: number | null;
+        currentStatus: KycStatus;
+        currentVersion: number;
+        providerRef: string | null;
+    } {
+        const currentAttempt = this.getCurrentStageAttemptForVerificationType(user, verificationType);
+        const latestEvent = this.getLatestAttemptEventForVerificationType(user?.kycAttemptEvents, verificationType);
+        const structuredPayload = this.getAttemptStructuredRecord(latestEvent?.payload);
+        const lookupPayload = this.getPersistedLookupHistoryPayload(latestEvent?.payload);
+        let eventVersion: number | null = null;
+        if (typeof structuredPayload?.attemptVersion === "number") {
+            eventVersion = structuredPayload.attemptVersion;
+        }
+
+        return {
+            attemptId: currentAttempt?.id
+                ?? latestEvent?.attemptId
+                ?? lookupPayload?.attemptId
+                ?? (typeof structuredPayload?.attemptId === "number" ? structuredPayload.attemptId : null),
+            currentStatus: currentAttempt?.status
+                ? this.mapStageAttemptStatusToKycStatus(currentAttempt.status)
+                : this.resolveLookupHistoryStatus(user, verificationType),
+            currentVersion: typeof currentAttempt?.version === "number"
+                ? currentAttempt.version
+                : eventVersion ?? 1,
+            providerRef: currentAttempt?.providerRef ?? latestEvent?.providerRef ?? null,
+        };
+    }
+
+    private getLatestAttemptEventForVerificationType(
+        attemptEvents: AttemptEventLookupRecord[] | undefined,
+        verificationType: AdminKycProviderLookupType,
+    ): AttemptEventLookupRecord | null {
+        return (attemptEvents ?? []).find((event) => this.doesAttemptEventMatchVerificationType(event, verificationType)) ?? null;
+    }
+
+    private doesAttemptEventMatchVerificationType(event: AttemptEventLookupRecord, verificationType: string): boolean {
+        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
+        if (lookupPayload?.lookupType === verificationType) {
+            return true;
+        }
+
+        const structuredPayload = this.getAttemptStructuredRecord(event?.payload);
+        if (structuredPayload?.verificationType === verificationType) {
+            return true;
+        }
+
+        if (event?.stage !== this.mapVerificationTypeToAttemptStage(verificationType)) {
+            return false;
+        }
+
+        return verificationType !== "BVN" && verificationType !== "NIN";
+    }
+
+    private async shadowWriteLookupAttemptEvent(params: {
+        userId: number;
+        verificationType: AdminKycProviderLookupType;
+        adminId?: number;
+        outcome: AdminLookupOutcome;
+        results: AdminKycLookupResult[];
+        note: string;
+        payload: PersistedAdminLookupHistoryPayload;
+        attemptId?: number | null;
+        currentStatus: KycStatus;
+        currentVersion: number;
+        providerRef?: string | null;
+        lookedUpAt: string;
+    }): Promise<{ id: number }> {
+        const attempt = await this.resolveOrCreateLookupShadowAttempt({
+            userId: params.userId,
+            verificationType: params.verificationType,
+            attemptId: params.attemptId,
+            currentStatus: params.currentStatus,
+            currentVersion: params.currentVersion,
+            providerRef: params.providerRef,
+            lookedUpAt: params.lookedUpAt,
+        });
+
+        const providerName = this.resolveLookupEventProviderName(params.results);
+        const providerRef = this.resolveLookupEventProviderRef(params.results);
+        const actorType = typeof params.adminId === "number" ? "ADMIN" : "SYSTEM";
+        return await (this.prisma as any).kycAttemptEvent.create({
             data: {
-                userId: user.id,
-                verificationType: verificationType as KycVerificationType,
-                status: this.resolveLookupHistoryStatus(user, verificationType, activeRecord?.status),
-                version: activeRecord?.version ?? 1,
-                isActive: false,
-                reviewerId: adminId,
-                reviewNote: this.buildLookupHistoryNote(verificationType, outcome, results),
-                documentUrl: results.find((result) => result.documentUrl)?.documentUrl ?? activeRecord?.documentUrl ?? undefined,
-                providerRef: results.find((result) => result.providerRef)?.providerRef ?? activeRecord?.providerRef ?? undefined,
-                providerRawResponse: payload,
-                reviewedAt: new Date(),
-            } as any,
+                attemptId: attempt.id,
+                userId: params.userId,
+                journeyType: attempt.journeyType,
+                stage: attempt.stage,
+                eventType: "ADMIN_RECHECK",
+                actorType,
+                actorId: params.adminId ?? null,
+                providerName: providerName ?? undefined,
+                providerStatus: this.mapLookupOutcomeToProviderStatus(params.outcome),
+                providerRef: providerRef ?? undefined,
+                note: params.note,
+                payload: params.payload as unknown as Prisma.InputJsonValue,
+            },
             select: { id: true },
         });
     }
 
+    private async resolveOrCreateLookupShadowAttempt(params: {
+        userId: number;
+        verificationType: AdminKycProviderLookupType;
+        attemptId?: number | null;
+        currentStatus: KycStatus;
+        currentVersion: number;
+        providerRef?: string | null;
+        lookedUpAt: string;
+    }): Promise<DecisionShadowAttempt> {
+        const existingAttempt = await this.resolveShadowAttemptForVerification(
+            params.userId,
+            params.verificationType,
+            params.attemptId,
+        );
+        if (existingAttempt) {
+            return existingAttempt;
+        }
+
+        const stage = this.mapVerificationTypeToAttemptStage(params.verificationType) as KycStage;
+        const journeyType = this.mapVerificationTypeToJourneyType(params.verificationType) as any;
+        const method = this.mapVerificationTypeToAttemptMethod(params.verificationType) as any;
+        const submittedAt = new Date(params.lookedUpAt);
+        const nextAttemptAggregate = await this.prisma.kycStageAttempt.aggregate({
+            where: {
+                userId: params.userId,
+                stage,
+            },
+            _max: { attemptNo: true },
+        });
+
+        return await this.prisma.kycStageAttempt.create({
+            data: {
+                userId: params.userId,
+                journeyType,
+                stage,
+                method,
+                attemptNo: (nextAttemptAggregate._max.attemptNo ?? 0) + 1,
+                isCurrent: true,
+                status: this.mapKycStatusToStageAttemptStatus(params.currentStatus),
+                providerStatus: this.mapKycStatusToStageProviderStatus(params.currentStatus),
+                providerRef: params.providerRef ?? null,
+                version: params.currentVersion,
+                submittedAt: Number.isNaN(submittedAt.getTime()) ? undefined : submittedAt,
+            } as Prisma.KycStageAttemptUncheckedCreateInput,
+            select: {
+                id: true,
+                journeyType: true,
+                stage: true,
+                status: true,
+                providerRef: true,
+                reviewerId: true,
+                reviewNote: true,
+                reviewedAt: true,
+                version: true,
+            },
+        });
+    }
+
+    private async resolveShadowAttemptForVerification(
+        userId: number,
+        verificationType: string,
+        attemptId?: number | null,
+    ): Promise<DecisionShadowAttempt | null> {
+        if (typeof attemptId === "number") {
+            const method = this.mapVerificationTypeToAttemptMethod(verificationType) as any;
+            const linkedAttempt = await this.prisma.kycStageAttempt.findFirst({
+                where: {
+                    id: attemptId,
+                    userId,
+                    journeyType: this.mapVerificationTypeToJourneyType(verificationType) as any,
+                    stage: this.mapVerificationTypeToAttemptStage(verificationType) as any,
+                    ...(method ? { method } : {}),
+                },
+                select: {
+                    id: true,
+                    journeyType: true,
+                    stage: true,
+                    status: true,
+                    providerRef: true,
+                    reviewerId: true,
+                    reviewNote: true,
+                    reviewedAt: true,
+                    version: true,
+                },
+            });
+
+            if (linkedAttempt) {
+                return linkedAttempt;
+            }
+        }
+
+        const stage = this.mapVerificationTypeToAttemptStage(verificationType);
+        const attemptWhere: any = {
+            userId,
+            journeyType: this.mapVerificationTypeToJourneyType(verificationType),
+            stage,
+            isCurrent: true,
+        };
+
+        if (verificationType === "BVN" || verificationType === "NIN") {
+            attemptWhere.method = verificationType as any;
+        }
+
+        return await this.prisma.kycStageAttempt.findFirst({
+            where: attemptWhere,
+            orderBy: [{ attemptNo: "desc" }, { id: "desc" }],
+            select: {
+                id: true,
+                journeyType: true,
+                stage: true,
+                status: true,
+                providerRef: true,
+                reviewerId: true,
+                reviewNote: true,
+                reviewedAt: true,
+                version: true,
+            },
+        });
+    }
+
+    private async resolveDecisionBridgeContext(
+        userId: number,
+        verificationType: string,
+    ): Promise<DecisionShadowAttempt | null> {
+        if (!this.isAttemptOwnedDecisionVerificationType(verificationType)) {
+            return null;
+        }
+
+        return await this.resolveShadowAttemptForVerification(userId, verificationType);
+    }
+
+    private resolveLookupEventProviderName(results: AdminKycLookupResult[]): string | null {
+        const providerNames = [...new Set(results.map((result) => result.provider).filter(Boolean))];
+        if (providerNames.length !== 1) {
+            return null;
+        }
+
+        if (providerNames[0] === "OCR") {
+            return "OCR";
+        }
+
+        if (providerNames[0] === "DOJAH") {
+            return "DOJAH";
+        }
+
+        return null;
+    }
+
+    private resolveLookupEventProviderRef(results: AdminKycLookupResult[]): string | null {
+        const providerRefs = [...new Set(results.map((result) => result.providerRef).filter((value): value is string => typeof value === "string" && value.length > 0))];
+        return providerRefs[0] ?? null;
+    }
+
+    private mapLookupOutcomeToProviderStatus(outcome: AdminLookupOutcome): string {
+        switch (outcome) {
+            case "SUCCESS":
+                return "PASSED";
+            case "PARTIAL_FAILURE":
+                return "INCONCLUSIVE";
+            case "FAILED":
+            default:
+                return "FAILED";
+        }
+    }
+
     private resolveLookupHistoryStatus(
         user: any,
-        verificationType: AdminKycVerificationLookupType,
+        verificationType: AdminKycProviderLookupType,
         activeStatus?: KycStatus,
     ): KycStatus {
         if (activeStatus) {
             return activeStatus;
         }
 
-        const fallbackStatusByVerificationType: Record<AdminKycVerificationLookupType, KycStatus> = {
-            BVN: user.isBvnVerified ? KycStatus.APPROVED : KycStatus.PENDING,
-            NIN: user.isNinVerified ? KycStatus.APPROVED : KycStatus.PENDING,
-            DOCUMENT: this.resolveDocumentLookupStatus(user.documentVerificationStatus, user.isDocumentVerified),
-            ADDRESS: this.resolveDocumentLookupStatus(user.addressVerificationStatus, user.isAddressVerified),
-            INCOME: this.resolveDocumentLookupStatus(user.incomeVerificationStatus, user.isIncomeVerified),
-            BUSINESS_DOCUMENT: this.resolveDocumentLookupStatus(user.businessDocumentVerificationStatus),
+        const normalizedUser = this.normalizeVerificationState(user);
+        const { verificationSnapshot } = normalizedUser;
+        const currentBusinessAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BUSINESS_DOCUMENT");
+        const fallbackStatusByVerificationType: Record<AdminKycProviderLookupType, KycStatus> = {
+            BVN: this.resolveStageManagedLookupStatus(normalizedUser, "BVN", verificationSnapshot.bvnVerified),
+            NIN: this.resolveStageManagedLookupStatus(normalizedUser, "NIN", verificationSnapshot.ninVerified),
+            DOCUMENT: this.resolveDocumentLookupStatus(normalizedUser.documentVerificationStatus, normalizedUser.documentVerified),
+            ADDRESS: this.resolveStageManagedLookupStatus(normalizedUser, "ADDRESS", verificationSnapshot.addressVerified, verificationSnapshot.addressStatus),
+            INCOME: this.resolveStageManagedLookupStatus(normalizedUser, "INCOME", verificationSnapshot.incomeVerified, verificationSnapshot.incomeStatus),
+            BUSINESS_DOCUMENT: currentBusinessAttempt?.status
+                ? this.mapStageAttemptStatusToKycStatus(currentBusinessAttempt.status)
+                : KycStatus.PENDING,
         };
 
         return fallbackStatusByVerificationType[verificationType] ?? KycStatus.PENDING;
@@ -525,7 +1125,7 @@ export class KycService {
     }
 
     private buildLookupHistoryNote(
-        verificationType: AdminKycVerificationLookupType,
+        verificationType: AdminKycProviderLookupType,
         outcome: AdminLookupOutcome,
         results: AdminKycLookupResult[],
     ): string {
@@ -963,6 +1563,898 @@ export class KycService {
         }
     }
 
+    private buildAttemptDetailsByVerificationType(params: {
+        user: any;
+        attemptHistory: AdminKycAttemptSummary[];
+        currentAttemptByVerificationType: Record<string, AdminKycAttemptSummary>;
+        attemptRecordByVerificationType: Record<string, any>;
+        auditLogs: any[];
+    }): Record<string, AdminKycAttemptDetail> {
+        const { user, attemptHistory, currentAttemptByVerificationType, attemptRecordByVerificationType, auditLogs } = params;
+        const details: Record<string, AdminKycAttemptDetail> = {};
+        const attemptEvents = user.kycAttemptEvents ?? [];
+
+        for (const verificationType of ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"]) {
+            const attempt = currentAttemptByVerificationType[verificationType]
+                ?? attemptHistory.find((candidate) => candidate.verificationType === verificationType)
+                ?? null;
+            const lookupHistory = this.buildAttemptLookupHistory(attemptEvents, verificationType as AdminKycProviderLookupType);
+            const decisionHistory = this.buildAttemptDecisionHistory(attemptEvents, auditLogs, verificationType);
+            const detail = this.buildAttemptDetail({
+                verificationType,
+                user,
+                attempt,
+                attemptRecord: attemptRecordByVerificationType[verificationType] ?? null,
+                attemptEvents,
+                lookupHistory,
+                decisionHistory,
+            });
+
+            if (detail) {
+                details[verificationType] = detail;
+            }
+        }
+
+        return details;
+    }
+
+    private mergeStructuredSummary(
+        fallbackSummary: Record<string, any> | null,
+        currentSummary: Record<string, any> | null,
+    ): Record<string, any> | null {
+        if (fallbackSummary && currentSummary) {
+            return {
+                ...fallbackSummary,
+                ...currentSummary,
+            };
+        }
+
+        return currentSummary ?? fallbackSummary;
+    }
+
+    private buildAttemptDetail(params: {
+        verificationType: string;
+        user: any;
+        attempt: AdminKycAttemptSummary | null;
+        attemptRecord: any;
+        attemptEvents: any[];
+        lookupHistory: AdminKycAttemptLookupHistoryItem[];
+        decisionHistory: AdminKycAttemptDecisionHistoryItem[];
+    }): AdminKycAttemptDetail | null {
+        const { verificationType, user, attempt, attemptRecord, attemptEvents, lookupHistory, decisionHistory } = params;
+        const hasLegacyEvidence = this.hasLegacyAttemptEvidence(verificationType, user);
+        const useLegacyFallbackValues = !this.isStageManagedVerificationType(verificationType) || !this.isStageAttemptRecord(attemptRecord);
+
+        if (!attempt && lookupHistory.length === 0 && !hasLegacyEvidence) {
+            return null;
+        }
+
+        const latestLookupResults = lookupHistory[0]?.results ?? [];
+        const attemptExtractedFields = this.getAttemptStructuredRecord(attemptRecord?.extractedFields);
+        const attemptComparisonSummary = this.getAttemptStructuredRecord(attemptRecord?.comparisonSummary);
+        const attemptEvidenceSummary = this.buildAttemptStructuredEvidenceSummary(verificationType, attemptRecord);
+        const fallbackExtractedFields = useLegacyFallbackValues
+            ? this.buildFallbackAttemptExtractedFields(verificationType, user)
+            : null;
+        const fallbackComparisonSummary = useLegacyFallbackValues
+            ? this.buildFallbackAttemptComparisonSummary(verificationType, user)
+            : null;
+        const fallbackEvidenceSummary = this.buildFallbackAttemptEvidenceSummary(verificationType, user);
+
+        return {
+            attempt,
+            extractedFields: this.buildAttemptExtractedFieldsFromLookupResults(latestLookupResults)
+                ?? this.mergeStructuredSummary(fallbackExtractedFields, attemptExtractedFields),
+            comparisonSummary: this.buildAttemptComparisonSummaryFromLookupResults(latestLookupResults)
+                ?? this.mergeStructuredSummary(fallbackComparisonSummary, attemptComparisonSummary),
+            evidenceSummary: this.buildAttemptEvidenceSummaryFromLookupResults(verificationType, latestLookupResults)
+                ?? this.mergeStructuredSummary(fallbackEvidenceSummary, attemptEvidenceSummary),
+            rawProviderResponse: this.resolveAttemptRawProviderResponse(
+                verificationType,
+                user,
+                latestLookupResults,
+                attemptRecord,
+                attemptEvents,
+                attempt?.attemptId ?? null,
+            ),
+            rawEvidence: this.buildAttemptRawEvidence(verificationType, user, attempt?.attemptId ?? 0, attemptRecord),
+            lookupHistory,
+            decisionHistory,
+        };
+    }
+
+    private buildAttemptLookupHistory(
+        attemptEvents: any[],
+        verificationType: AdminKycProviderLookupType,
+    ): AdminKycAttemptLookupHistoryItem[] {
+        return this.buildAttemptLookupHistoryFromEvents(attemptEvents, verificationType);
+    }
+
+    private buildAttemptLookupHistoryFromEvents(
+        attemptEvents: any[],
+        verificationType: AdminKycProviderLookupType,
+    ): AdminKycAttemptLookupHistoryItem[] {
+        return attemptEvents
+            .map((event) => ({
+                event,
+                payload: this.getPersistedLookupHistoryPayload(event.payload),
+            }))
+            .filter((entry) => entry.payload?.lookupType === verificationType)
+            .map(({ event, payload }) => {
+                if (!payload) {
+                    return null;
+                }
+
+                let historyRecordId = event.id;
+                if (typeof payload.legacyHistoryRecordId === "number") {
+                    historyRecordId = payload.legacyHistoryRecordId;
+                }
+
+                return {
+                    historyRecordId,
+                    outcome: payload.outcome,
+                    lookedUpAt: payload.lookedUpAt,
+                    requestedByAdminId: payload.requestedByAdminId ?? (event.actorType === "ADMIN" ? event.actorId ?? null : null),
+                    note: event.note ?? null,
+                    results: payload.results,
+                };
+            })
+            .filter((entry): entry is AdminKycAttemptLookupHistoryItem => Boolean(entry))
+            .sort((left, right) => new Date(right.lookedUpAt).getTime() - new Date(left.lookedUpAt).getTime());
+    }
+
+    private buildAttemptDecisionHistory(
+        attemptEvents: any[],
+        auditLogs: any[],
+        verificationType: string,
+    ): AdminKycAttemptDecisionHistoryItem[] {
+        const eventHistory = this.buildAttemptDecisionHistoryFromEvents(attemptEvents, verificationType);
+        const auditHistory = auditLogs
+            .filter((entry) => entry.details?.verificationType === verificationType && typeof entry.action === "string" && entry.action.startsWith("KYC_"))
+            .map((entry) => ({
+                action: entry.action,
+                note: entry.details?.note ?? null,
+                adminId: entry.adminId ?? null,
+                createdAt: entry.createdAt,
+            }));
+
+        if (eventHistory.length === 0) {
+            return auditHistory;
+        }
+
+        const mergedHistory = [...eventHistory];
+        for (const auditEntry of auditHistory) {
+            if (!eventHistory.some((eventEntry) => this.isDuplicateDecisionHistoryEntry(eventEntry, auditEntry))) {
+                mergedHistory.push(auditEntry);
+            }
+        }
+
+        return mergedHistory.sort(
+            (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+        );
+    }
+
+    private buildAttemptDecisionHistoryFromEvents(
+        attemptEvents: any[],
+        verificationType: string,
+    ): AdminKycAttemptDecisionHistoryItem[] {
+        return attemptEvents
+            .map((event) => ({
+                event,
+                payload: this.getPersistedDecisionEventPayload(event.payload),
+                verificationType: this.resolveAttemptEventVerificationType(event),
+            }))
+            .filter((entry) => entry.verificationType === verificationType && this.isDecisionEventType(entry.event.eventType))
+            .map(({ event, payload }) => ({
+                action: payload?.auditAction ?? this.mapDecisionEventTypeToAuditAction(event.eventType),
+                note: event.note ?? payload?.note ?? null,
+                adminId: event.actorType === "ADMIN" ? event.actorId ?? null : null,
+                createdAt: event.createdAt,
+            }))
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    }
+
+    private isDuplicateDecisionHistoryEntry(
+        left: AdminKycAttemptDecisionHistoryItem,
+        right: AdminKycAttemptDecisionHistoryItem,
+    ): boolean {
+        if (left.action !== right.action || left.note !== right.note) {
+            return false;
+        }
+
+        const adminIdsMatch = left.adminId === right.adminId
+            || left.adminId === null
+            || right.adminId === null;
+
+        if (!adminIdsMatch) {
+            return false;
+        }
+
+        const leftTime = new Date(left.createdAt).getTime();
+        const rightTime = new Date(right.createdAt).getTime();
+        return Math.abs(leftTime - rightTime) < 5000;
+    }
+
+    private isDecisionEventType(eventType: string): boolean {
+        return ["APPROVED", "REJECTED", "ESCALATED"].includes(eventType);
+    }
+
+    private mapDecisionEventTypeToAuditAction(eventType: string): string {
+        switch (eventType) {
+            case "APPROVED":
+                return "KYC_APPROVE";
+            case "REJECTED":
+                return "KYC_REJECT";
+            case "ESCALATED":
+                return "KYC_ESCALATE";
+            default:
+                return `KYC_${eventType}`;
+        }
+    }
+
+    private buildAdminAuditHistory(
+        attemptEvents: any[],
+        auditLogs: any[],
+    ): AdminKycAuditHistoryItem[] {
+        const eventHistory = attemptEvents
+            .map((event) => this.mapAttemptEventToAuditHistoryItem(event))
+            .filter((entry): entry is AdminKycAuditHistoryItem => Boolean(entry));
+        const auditHistory = auditLogs.map((entry) => this.mapAuditLogToAdminHistoryItem(entry));
+
+        if (eventHistory.length === 0) {
+            return auditHistory;
+        }
+
+        const mergedHistory = [...eventHistory];
+        for (const auditEntry of auditHistory) {
+            if (!eventHistory.some((eventEntry) => this.isDuplicateAdminAuditHistoryEntry(eventEntry, auditEntry))) {
+                mergedHistory.push(auditEntry);
+            }
+        }
+
+        return mergedHistory.sort(
+            (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+        );
+    }
+
+    private mapAttemptEventToAuditHistoryItem(event: any): AdminKycAuditHistoryItem | null {
+        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
+        const decisionPayload = this.getPersistedDecisionEventPayload(event?.payload);
+        let action: string | null = null;
+
+        if (event?.eventType === "ADMIN_RECHECK" || lookupPayload) {
+            action = "KYC_PROVIDER_LOOKUP";
+        } else if (this.isDecisionEventType(event?.eventType)) {
+            action = decisionPayload?.auditAction ?? this.mapDecisionEventTypeToAuditAction(event.eventType);
+        }
+
+        if (!action) {
+            return null;
+        }
+
+        return {
+            source: "ATTEMPT_EVENT",
+            action,
+            verificationType: this.resolveAttemptEventVerificationType(event),
+            eventType: typeof event?.eventType === "string" ? event.eventType : null,
+            attemptId: typeof event?.attemptId === "number" ? event.attemptId : null,
+            adminId: event?.actorType === "ADMIN" ? event.actorId ?? null : null,
+            note: event?.note ?? decisionPayload?.note ?? null,
+            createdAt: event.createdAt,
+        };
+    }
+
+    private mapAuditLogToAdminHistoryItem(entry: any): AdminKycAuditHistoryItem {
+        return {
+            source: "AUDIT_LOG",
+            action: entry.action,
+            verificationType: entry.details?.verificationType ?? null,
+            eventType: null,
+            attemptId: typeof entry.details?.attemptId === "number" ? entry.details.attemptId : null,
+            adminId: entry.adminId ?? null,
+            note: entry.details?.note ?? null,
+            createdAt: entry.createdAt,
+        };
+    }
+
+    private isDuplicateAdminAuditHistoryEntry(
+        left: AdminKycAuditHistoryItem,
+        right: AdminKycAuditHistoryItem,
+    ): boolean {
+        if (left.action !== right.action || left.verificationType !== right.verificationType) {
+            return false;
+        }
+
+        const notesMatch = left.note === right.note || left.note === null || right.note === null;
+        const adminIdsMatch = left.adminId === right.adminId || left.adminId === null || right.adminId === null;
+
+        if (!notesMatch || !adminIdsMatch) {
+            return false;
+        }
+
+        const leftTime = new Date(left.createdAt).getTime();
+        const rightTime = new Date(right.createdAt).getTime();
+        return Math.abs(leftTime - rightTime) < 5000;
+    }
+
+    private buildLatestAttemptActivityIndex(attemptEvents: any[]): Map<number, AdminKycAuditHistoryItem> {
+        const latestActivityByAttemptId = new Map<number, AdminKycAuditHistoryItem>();
+
+        for (const historyItem of this.buildAdminAuditHistory(attemptEvents, [])) {
+            if (typeof historyItem.attemptId !== "number") {
+                continue;
+            }
+
+            if (!latestActivityByAttemptId.has(historyItem.attemptId)) {
+                latestActivityByAttemptId.set(historyItem.attemptId, historyItem);
+            }
+        }
+
+        return latestActivityByAttemptId;
+    }
+
+    private attachLatestAttemptActivity(
+        attempt: AdminKycAttemptSummary,
+        latestActivityByAttemptId: Map<number, AdminKycAuditHistoryItem>,
+    ): AdminKycAttemptSummary {
+        const latestActivity = latestActivityByAttemptId.get(attempt.attemptId);
+        if (!latestActivity) {
+            return attempt;
+        }
+
+        return {
+            ...attempt,
+            latestActivityAt: latestActivity.createdAt,
+            latestActivityType: latestActivity.eventType ?? latestActivity.action,
+            latestActivityNote: latestActivity.note,
+            latestActivityAdminId: latestActivity.adminId,
+        };
+    }
+
+    private buildAttemptRawEvidence(
+        verificationType: string,
+        user: any,
+        attemptId: number,
+        attemptRecord?: any,
+    ): AdminKycAttemptEvidenceItem[] {
+        if (this.isStageAttemptRecord(attemptRecord) && Array.isArray(attemptRecord.evidenceAssets) && attemptRecord.evidenceAssets.length > 0) {
+            return attemptRecord.evidenceAssets.map((asset: any, index: number) => ({
+                id: asset.id ?? (attemptId * 10 + index + 1),
+                kind: this.mapStageEvidenceKindToAdminKind(verificationType, asset.kind, asset.side),
+                label: this.getStageEvidenceLabel(verificationType, asset.kind, asset.side),
+                url: asset.storageUrl,
+                mimeType: asset.mimeType ?? null,
+            }));
+        }
+
+        switch (verificationType) {
+            case "DOCUMENT":
+                return [
+                    user.userDocument?.documentImageUrl
+                        ? {
+                            id: attemptId * 10 + 1,
+                            kind: "DOCUMENT_FRONT",
+                            label: "Identity document front",
+                            url: user.userDocument.documentImageUrl,
+                            mimeType: null,
+                        }
+                        : null,
+                    user.userDocument?.documentImageUrl2
+                        ? {
+                            id: attemptId * 10 + 2,
+                            kind: "DOCUMENT_BACK",
+                            label: "Identity document back",
+                            url: user.userDocument.documentImageUrl2,
+                            mimeType: null,
+                        }
+                        : null,
+                ].filter(Boolean) as AdminKycAttemptEvidenceItem[];
+            case "ADDRESS":
+                return user.addressDocumentUrl
+                    ? [{ id: attemptId * 10 + 1, kind: "ADDRESS_DOCUMENT", label: "Address document", url: user.addressDocumentUrl, mimeType: null }]
+                    : [];
+            case "INCOME":
+                return user.incomeDocumentUrl
+                    ? [{ id: attemptId * 10 + 1, kind: "INCOME_DOCUMENT", label: "Income document", url: user.incomeDocumentUrl, mimeType: null }]
+                    : [];
+            case "BUSINESS_DOCUMENT":
+                return [
+                    ["CAC_DOCUMENT", "CAC Certificate", user.businessDocument?.cacImageUrl],
+                    ["AOA_DOCUMENT", "Articles of Association", user.businessDocument?.articleOfAssociationImageUrl],
+                    ["BOARD_RESOLUTION", "Board Resolution", user.businessDocument?.boardResolutionAuthorizedAcctOpeningImageUrl],
+                    ["BENEFICIAL_OWNER_ADDRESS", "Beneficial Owner Address", user.businessDocument?.proofOfAddressForBeneficialOwner],
+                    ["BENEFICIAL_OWNER_ID", "Beneficial Owner ID", user.businessDocument?.meansOfIdentificationForBeneficialOwner],
+                ]
+                    .filter(([, , url]) => Boolean(url))
+                    .map(([kind, label, url], index) => ({
+                        id: attemptId * 10 + index + 1,
+                        kind,
+                        label,
+                        url: url as string,
+                        mimeType: null,
+                    }));
+            default:
+                return [];
+        }
+    }
+
+    private buildAttemptExtractedFieldsFromLookupResults(results: AdminKycLookupResult[]): Record<string, any> | null {
+        if (results.length === 0) {
+            return null;
+        }
+
+        if (results.length === 1) {
+            return results[0].summary ?? null;
+        }
+
+        return results.reduce<Record<string, any>>((accumulator, result) => {
+            accumulator[result.key] = result.summary;
+            return accumulator;
+        }, {});
+    }
+
+    private buildAttemptComparisonSummaryFromLookupResults(results: AdminKycLookupResult[]): Record<string, any> | null {
+        if (results.length === 0) {
+            return null;
+        }
+
+        if (results.length === 1) {
+            return results[0].summary ?? null;
+        }
+
+        return results.reduce<Record<string, any>>((accumulator, result) => ({
+            ...accumulator,
+            ...result.summary,
+            [`${result.key}Status`]: result.status,
+        }), {
+            verified: results.every((result) => result.status === "SUCCESS"),
+            lookupCount: results.length,
+        });
+    }
+
+    private buildAttemptEvidenceSummaryFromLookupResults(
+        verificationType: string,
+        results: AdminKycLookupResult[],
+    ): Record<string, any> | null {
+        if (results.length === 0) {
+            return null;
+        }
+
+        if (results.length === 1) {
+            return {
+                verificationType,
+                provider: results[0].provider,
+                providerStatus: results[0].status,
+                providerRef: results[0].providerRef ?? null,
+                documentUrl: results[0].documentUrl ?? null,
+                ...results[0].summary,
+            };
+        }
+
+        return {
+            verificationType,
+            providerStatus: this.resolveLookupOutcomeFromResults(results),
+            providerRefs: results.map((result) => result.providerRef).filter(Boolean),
+            documentUrls: results.map((result) => result.documentUrl).filter(Boolean),
+            lookupCount: results.length,
+            ...this.buildAttemptComparisonSummaryFromLookupResults(results),
+        };
+    }
+
+    private buildFallbackAttemptExtractedFields(
+        verificationType: string,
+        user: any,
+    ): Record<string, any> | null {
+        switch (verificationType) {
+            case "DOCUMENT":
+                return {
+                    firstName: user.userDocument?.dojahExtractedFirstName ?? null,
+                    lastName: user.userDocument?.dojahExtractedLastName ?? null,
+                    dateOfBirth: user.userDocument?.dojahExtractedDob ?? null,
+                    documentType: user.userDocument?.dojahDocumentType ?? user.userDocument?.type ?? null,
+                    documentNumber: user.userDocument?.dojahExtractedDocNumber ?? null,
+                    expiryDate: user.userDocument?.dojahExtractedExpiryDate ?? null,
+                };
+            case "BUSINESS_DOCUMENT":
+                return {
+                    cacCompanyName: user.businessDocument?.cacCompanyName ?? null,
+                    tinTaxpayerName: user.businessDocument?.tinTaxpayerName ?? null,
+                    cacOcrExtractedNumber: user.businessDocument?.cacOcrExtractedNumber ?? null,
+                    cacOcrExtractedName: user.businessDocument?.cacOcrExtractedName ?? null,
+                };
+            case "ADDRESS":
+                return user.residentialAddress ? { residentialAddress: user.residentialAddress } : null;
+            default:
+                return null;
+        }
+    }
+
+    private buildFallbackAttemptComparisonSummary(
+        verificationType: string,
+        user: any,
+    ): Record<string, any> | null {
+        const expectedName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
+        const extractedName = [user.userDocument?.dojahExtractedFirstName, user.userDocument?.dojahExtractedLastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || null;
+
+        switch (verificationType) {
+            case "DOCUMENT":
+                return {
+                    expectedName,
+                    providerName: extractedName,
+                    nameMatches: user.userDocument?.dojahNameMatches ?? null,
+                    expectedDateOfBirth: user.dateOfBirth ?? null,
+                    providerDateOfBirth: user.userDocument?.dojahExtractedDob ?? null,
+                    expectedDocumentType: user.userDocument?.type ?? null,
+                    providerDocumentType: user.userDocument?.dojahDocumentType ?? null,
+                    expectedDocumentNumber: user.userDocument?.documentNumber ?? null,
+                    providerDocumentNumber: user.userDocument?.dojahExtractedDocNumber ?? null,
+                };
+            case "ADDRESS":
+                return {
+                    expectedName,
+                    expectedAddress: user.residentialAddress ?? null,
+                };
+            case "INCOME":
+                return {
+                    expectedName,
+                };
+            case "BUSINESS_DOCUMENT":
+                return {
+                    expectedCompanyName: user.businessRecord?.businessName ?? null,
+                    providerCompanyName: user.businessDocument?.cacCompanyName ?? null,
+                    providerTaxpayerName: user.businessDocument?.tinTaxpayerName ?? null,
+                    nameMatches: user.businessDocument?.cacNameMatches ?? user.businessDocument?.tinNameMatches ?? null,
+                    expectedCacNumber: user.businessDocument?.cacDocumentNumber ?? null,
+                    providerCacNumber: user.businessDocument?.cacOcrExtractedNumber ?? null,
+                    numberMatches: user.businessDocument?.cacOcrNumberMatches ?? null,
+                };
+            default:
+                return null;
+        }
+    }
+
+    private buildFallbackAttemptEvidenceSummary(
+        verificationType: string,
+        user: any,
+    ): Record<string, any> | null {
+        const normalizedUser = this.normalizeVerificationState(user);
+        const { verificationSnapshot } = normalizedUser;
+
+        switch (verificationType) {
+            case "BVN":
+                return { verified: verificationSnapshot.bvnVerified };
+            case "NIN":
+                return { verified: verificationSnapshot.ninVerified };
+            case "DOCUMENT":
+                return {
+                    verified: normalizedUser.documentVerified,
+                    documentType: normalizedUser.userDocument?.type ?? null,
+                    documentNumber: normalizedUser.userDocument?.documentNumber ?? null,
+                    countryCode: normalizedUser.userDocument?.dojahCountryCode ?? null,
+                    extractedExpiryDate: normalizedUser.userDocument?.dojahExtractedExpiryDate ?? null,
+                };
+            case "ADDRESS":
+                return {
+                    verified: verificationSnapshot.addressVerified,
+                    status: verificationSnapshot.addressStatus ?? null,
+                    residentialAddress: user.residentialAddress ?? null,
+                    documentUrl: user.addressDocumentUrl ?? null,
+                };
+            case "INCOME":
+                return {
+                    verified: verificationSnapshot.incomeVerified,
+                    status: verificationSnapshot.incomeStatus ?? null,
+                    documentUrl: user.incomeDocumentUrl ?? null,
+                };
+            case "BUSINESS_DOCUMENT":
+                return {
+                    verified: false,
+                    status: null,
+                    businessName: user.businessRecord?.businessName ?? null,
+                    taxIdentificationNumber: user.businessRecord?.taxIdentificationNumber ?? null,
+                    cacDocumentNumber: user.businessDocument?.cacDocumentNumber ?? null,
+                };
+            default:
+                return null;
+        }
+    }
+
+    private getAttemptStructuredRecord(value: unknown): Record<string, any> | null {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return null;
+        }
+
+        return value as Record<string, any>;
+    }
+
+    private buildAttemptStructuredEvidenceSummary(
+        verificationType: string,
+        attemptRecord: any,
+    ): Record<string, any> | null {
+        if (!this.isStageAttemptRecord(attemptRecord)) {
+            return null;
+        }
+
+        const summary = this.getAttemptStructuredRecord(attemptRecord.evidenceSummary);
+        const documentUrls = Array.isArray(attemptRecord.evidenceAssets)
+            ? attemptRecord.evidenceAssets.map((asset: any) => asset.storageUrl).filter(Boolean)
+            : [];
+
+        if (!summary && documentUrls.length === 0) {
+            return null;
+        }
+
+        const structuredSummary: Record<string, any> = {
+            verificationType,
+            providerStatus: attemptRecord.providerStatus ?? null,
+            reasonCode: attemptRecord.reasonCode ?? null,
+            reasonMessage: attemptRecord.reasonMessage ?? null,
+        };
+
+        if (summary) {
+            Object.assign(structuredSummary, summary);
+        }
+
+        if (documentUrls.length === 1) {
+            structuredSummary.documentUrl = documentUrls[0];
+        } else if (documentUrls.length > 1) {
+            structuredSummary.documentUrls = documentUrls;
+        }
+
+        return structuredSummary;
+    }
+
+    private resolveAttemptRawProviderResponse(
+        verificationType: string,
+        user: any,
+        latestLookupResults: AdminKycLookupResult[],
+        attemptRecord: any,
+        attemptEvents: any[],
+        attemptId?: number | null,
+    ): any {
+        if (latestLookupResults.length === 1) {
+            return latestLookupResults[0].rawResponse ?? null;
+        }
+
+        if (latestLookupResults.length > 1) {
+            return latestLookupResults.map((result) => ({
+                key: result.key,
+                label: result.label,
+                status: result.status,
+                provider: result.provider,
+                rawResponse: result.rawResponse,
+            }));
+        }
+
+        const importedLegacyProviderResponse = this.getImportedLegacyProviderResponse(attemptEvents, attemptId);
+
+        if (this.isStageAttemptRecord(attemptRecord)) {
+            if (importedLegacyProviderResponse !== null && importedLegacyProviderResponse !== undefined) {
+                return importedLegacyProviderResponse;
+            }
+
+            return this.getAttemptStructuredRecord(attemptRecord.reasonDetails)
+                ?? this.getAttemptStructuredRecord(attemptRecord.comparisonSummary)
+                ?? null;
+        }
+
+        switch (verificationType) {
+            case "DOCUMENT":
+                return user.userDocument?.dojahRawResponse ?? null;
+            case "BUSINESS_DOCUMENT":
+                return {
+                    cac: user.businessDocument?.cacRawResponse ?? null,
+                    tin: user.businessDocument?.tinRawResponse ?? null,
+                    cacOcr: user.businessDocument?.cacOcrRawResponse ?? null,
+                };
+            default:
+                return importedLegacyProviderResponse ?? null;
+        }
+    }
+
+    private hasLegacyAttemptEvidence(verificationType: string, user: any): boolean {
+        switch (verificationType) {
+            case "BVN":
+                return Boolean(user.bvn);
+            case "NIN":
+                return Boolean(user.nin);
+            case "DOCUMENT":
+                return Boolean(user.userDocument);
+            case "ADDRESS":
+                return Boolean(user.addressDocumentUrl);
+            case "INCOME":
+                return Boolean(user.incomeDocumentUrl);
+            case "BUSINESS_DOCUMENT":
+                return Boolean(user.businessDocument);
+            default:
+                return false;
+        }
+    }
+
+    private getPersistedLookupHistoryPayload(payload: unknown): PersistedAdminLookupHistoryPayload | null {
+        if (!payload) {
+            return null;
+        }
+
+        let candidate = payload as any;
+        if (typeof candidate === "string") {
+            try {
+                candidate = JSON.parse(candidate);
+            } catch {
+                return null;
+            }
+        }
+
+        if (!candidate || typeof candidate !== "object") {
+            return null;
+        }
+
+        if (candidate.source !== "ADMIN_PROVIDER_LOOKUP" || !candidate.lookupType || !Array.isArray(candidate.results)) {
+            return null;
+        }
+
+        return candidate as PersistedAdminLookupHistoryPayload;
+    }
+
+    private getPersistedDecisionEventPayload(payload: unknown): PersistedAdminDecisionEventPayload | null {
+        if (!payload) {
+            return null;
+        }
+
+        let candidate = payload as any;
+        if (typeof candidate === "string") {
+            try {
+                candidate = JSON.parse(candidate);
+            } catch {
+                return null;
+            }
+        }
+
+        if (!candidate || typeof candidate !== "object") {
+            return null;
+        }
+
+        if (candidate.source !== "ADMIN_DECISION" || !candidate.verificationType || !candidate.action || !candidate.auditAction) {
+            return null;
+        }
+
+        return candidate as PersistedAdminDecisionEventPayload;
+    }
+
+    private resolveAttemptEventVerificationType(event: any): string | null {
+        const lookupPayload = this.getPersistedLookupHistoryPayload(event?.payload);
+        if (lookupPayload?.lookupType) {
+            return lookupPayload.lookupType;
+        }
+
+        const decisionPayload = this.getPersistedDecisionEventPayload(event?.payload);
+        if (decisionPayload?.verificationType) {
+            return decisionPayload.verificationType;
+        }
+
+        if (typeof event?.stage === "string" && event.stage !== "GOVERNMENT_ID") {
+            return this.mapStageAttemptToVerificationType(event.stage);
+        }
+
+        return null;
+    }
+
+    private resolveLookupOutcomeFromResults(results: AdminKycLookupResult[]): AdminLookupOutcome {
+        if (results.length === 0) {
+            return "FAILED";
+        }
+
+        const hasSuccess = results.some((result) => result.status === "SUCCESS");
+        const allSuccessful = results.every((result) => result.status === "SUCCESS");
+
+        if (allSuccessful) {
+            return "SUCCESS";
+        }
+
+        if (hasSuccess) {
+            return "PARTIAL_FAILURE";
+        }
+
+        return "FAILED";
+    }
+
+    private async getAttemptSummaryById(
+        attemptId: number,
+        verificationType?: string,
+    ): Promise<AdminKycAttemptSummary | null> {
+        const stagedAttempt = await this.findStageAttemptById(attemptId);
+        if (stagedAttempt) {
+            const resolvedVerificationType = this.mapStageAttemptToVerificationType(stagedAttempt.stage, stagedAttempt.method);
+            if (!verificationType || verificationType === resolvedVerificationType) {
+                return this.buildAdminAttemptSummary(stagedAttempt);
+            }
+        }
+
+        return null;
+    }
+
+    private async resolveAttemptContext(
+        attemptId: number,
+        verificationType?: string,
+    ): Promise<{
+        attemptId: number;
+        userId: number;
+        verificationType: string;
+        stage: string;
+    } | null> {
+        const stagedAttempt = await this.findStageAttemptById(attemptId);
+        if (stagedAttempt) {
+            const resolvedVerificationType = this.mapStageAttemptToVerificationType(stagedAttempt.stage, stagedAttempt.method);
+            if (!verificationType || resolvedVerificationType === verificationType) {
+                return {
+                    attemptId: stagedAttempt.id,
+                    userId: stagedAttempt.userId,
+                    verificationType: resolvedVerificationType,
+                    stage: stagedAttempt.stage,
+                };
+            }
+        }
+
+        return null;
+    }
+
+    private async findStageAttemptById(attemptId: number): Promise<StageAttemptLookupRecord | null> {
+        return await this.prisma.kycStageAttempt.findUnique({
+            where: { id: attemptId },
+            select: stageAttemptLookupSelect,
+        });
+    }
+
+    private buildAdminAttemptNextAction(status?: string | null, stage?: string | null): {
+        type: "WAIT" | "COMPLETE" | "RESUBMIT";
+        stage: string | null | undefined;
+        label: string;
+        message: string;
+    } {
+        if (status === "APPROVED") {
+            return {
+                type: "COMPLETE",
+                stage,
+                label: "Completed",
+                message: "No further action is required.",
+            };
+        }
+
+        if (status === "PENDING" || status === "ESCALATED") {
+            return {
+                type: "WAIT",
+                stage,
+                label: "Await review",
+                message: "Awaiting an admin review decision.",
+            };
+        }
+
+        return {
+            type: "RESUBMIT",
+            stage,
+            label: "Resubmit",
+            message: "Another submission is required before review can continue.",
+        };
+    }
+
+    private ensureLookupProviderSupported(provider: AdminLookupProvider, verificationType: string): void {
+        const supportedProviders: Record<string, AdminLookupProvider[]> = {
+            BVN: ["DOJAH"],
+            NIN: ["DOJAH"],
+            DOCUMENT: ["DOJAH"],
+            ADDRESS: ["OCR"],
+            INCOME: ["OCR"],
+            BUSINESS_DOCUMENT: ["DOJAH", "OCR"],
+        };
+
+        if (!supportedProviders[verificationType]?.includes(provider)) {
+            throw new BadRequestException(`Provider ${provider} is not supported for ${verificationType} rechecks`);
+        }
+    }
+
     private buildLookupErrorResult(
         key: string,
         label: string,
@@ -1077,6 +2569,49 @@ export class KycService {
         return trustedOrigins;
     }
 
+    private resolveTrustedDocumentSource(trustedUrl: URL): { hostname: string; port?: number; pathPrefix?: string } | null {
+        if (imagekitConfig.url) {
+            try {
+                const configuredImagekitUrl = new URL(imagekitConfig.url);
+                const configuredPathPrefix = configuredImagekitUrl.pathname === "/"
+                    ? undefined
+                    : configuredImagekitUrl.pathname.replace(/\/+$/, "");
+
+                if (
+                    trustedUrl.origin === configuredImagekitUrl.origin
+                    && (!configuredPathPrefix || trustedUrl.pathname === configuredPathPrefix || trustedUrl.pathname.startsWith(`${configuredPathPrefix}/`))
+                ) {
+                    return {
+                        hostname: configuredImagekitUrl.hostname,
+                        port: configuredImagekitUrl.port ? Number(configuredImagekitUrl.port) : undefined,
+                        pathPrefix: configuredPathPrefix,
+                    };
+                }
+            } catch {
+                // The invalid config warning is emitted by getTrustedDocumentOrigins().
+            }
+        }
+
+        if (
+            cloudinaryConfig.cloud_name
+            && trustedUrl.origin === "https://res.cloudinary.com"
+            && trustedUrl.pathname.startsWith(`/${cloudinaryConfig.cloud_name}/`)
+        ) {
+            return {
+                hostname: "res.cloudinary.com",
+                pathPrefix: `/${cloudinaryConfig.cloud_name}`,
+            };
+        }
+
+        if (trustedUrl.origin === "https://ik.imagekit.io") {
+            return {
+                hostname: "ik.imagekit.io",
+            };
+        }
+
+        return null;
+    }
+
     private resolveTrustedDocumentUrl(rawUrl: string): URL | null {
         try {
             const parsedUrl = new URL(rawUrl);
@@ -1084,11 +2619,52 @@ export class KycService {
                 return null;
             }
 
-            return this.getTrustedDocumentOrigins().has(parsedUrl.origin)
+            return this.resolveTrustedDocumentSource(parsedUrl)
                 ? parsedUrl
                 : null;
         } catch {
             return null;
+        }
+    }
+
+    private buildTrustedDocumentRequest(trustedUrl: URL): { hostname: string; port?: number; requestPath: string } | null {
+        if (trustedUrl.username || trustedUrl.password || trustedUrl.hash) {
+            return null;
+        }
+
+        const trustedSource = this.resolveTrustedDocumentSource(trustedUrl);
+        if (!trustedSource) {
+            return null;
+        }
+
+        const requestPath = `${trustedUrl.pathname}${trustedUrl.search}`;
+        if (!requestPath.startsWith("/") || requestPath.startsWith("//")) {
+            return null;
+        }
+
+        return {
+            hostname: trustedSource.hostname,
+            port: trustedSource.port,
+            requestPath,
+        };
+    }
+
+    private getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+
+        if (typeof error === "string" && error.trim().length > 0) {
+            return error;
+        }
+
+        try {
+            const serialized = JSON.stringify(error);
+            return serialized && serialized !== "{}"
+                ? serialized
+                : fallback;
+        } catch {
+            return fallback;
         }
     }
 
@@ -1098,10 +2674,47 @@ export class KycService {
             throw new BadRequestException("Stored document URL is not trusted for investigative lookup");
         }
 
-        const response = await axios.get<ArrayBuffer>(trustedUrl.toString(), {
-            responseType: "arraybuffer",
-            timeout: 30000,
-            maxRedirects: 0,
+        const trustedRequest = this.buildTrustedDocumentRequest(trustedUrl);
+        if (!trustedRequest) {
+            throw new BadRequestException("Stored document URL is not trusted for investigative lookup");
+        }
+
+        const response = await new Promise<{ buffer: Buffer; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
+            const request = httpsRequest(
+                {
+                    hostname: trustedRequest.hostname,
+                    port: trustedRequest.port,
+                    path: trustedRequest.requestPath,
+                    method: "GET",
+                    timeout: 30000,
+                },
+                (downloadResponse) => {
+                    const statusCode = downloadResponse.statusCode ?? 0;
+                    if (statusCode < 200 || statusCode >= 300) {
+                        downloadResponse.resume();
+                        reject(new BadRequestException(`Trusted document download failed with status ${statusCode}`));
+                        return;
+                    }
+
+                    const chunks: Buffer[] = [];
+                    downloadResponse.on("data", (chunk) => {
+                        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                    });
+                    downloadResponse.on("end", () => {
+                        resolve({
+                            buffer: Buffer.concat(chunks),
+                            headers: downloadResponse.headers as Record<string, string | string[] | undefined>,
+                        });
+                    });
+                    downloadResponse.on("error", reject);
+                },
+            );
+
+            request.on("timeout", () => {
+                request.destroy(new Error("Timed out downloading investigative document"));
+            });
+            request.on("error", reject);
+            request.end();
         });
 
         const contentType = Array.isArray(response.headers["content-type"])
@@ -1109,7 +2722,7 @@ export class KycService {
             : response.headers["content-type"];
 
         return {
-            buffer: Buffer.from(response.data),
+            buffer: response.buffer,
             mimeType: typeof contentType === "string" ? contentType : undefined,
         };
     }
@@ -1119,11 +2732,7 @@ export class KycService {
 
         if (action === "APPROVE") {
             const verificationMap: Record<string, Prisma.UserUpdateInput> = {
-                BVN: { isBvnVerified: true },
-                NIN: { isNinVerified: true },
                 DOCUMENT: { isDocumentVerified: true, documentVerificationStatus: "VERIFIED" },
-                ADDRESS: { isAddressVerified: true, addressVerificationStatus: "VERIFIED" },
-                INCOME: { isIncomeVerified: true, incomeVerificationStatus: "VERIFIED" },
                 BUSINESS_DOCUMENT: { isDocumentVerified: true, businessDocumentVerificationStatus: "VERIFIED" },
             };
             return verificationMap[verificationType] || {};
@@ -1131,11 +2740,9 @@ export class KycService {
 
         if (action === "REJECT") {
             const rejectionMap: Record<string, Prisma.UserUpdateInput> = {
-                BVN: { isBvnVerified: false },
-                NIN: { isNinVerified: false },
                 DOCUMENT: { isDocumentVerified: false, documentVerificationStatus: "DECLINED" },
-                ADDRESS: { isAddressVerified: false, addressVerificationStatus: "DECLINED", addressDocumentUrl: null },
-                INCOME: { isIncomeVerified: false, incomeVerificationStatus: "DECLINED", incomeDocumentUrl: null },
+                ADDRESS: { addressDocumentUrl: null },
+                INCOME: { incomeDocumentUrl: null },
                 BUSINESS_DOCUMENT: { isDocumentVerified: false, businessDocumentVerificationStatus: "DECLINED", businessDocumentsUploaded: false },
             };
             return rejectionMap[verificationType] || {};
@@ -1149,26 +2756,14 @@ export class KycService {
         updateData: Prisma.UserUpdateInput,
         dto: UpdateUserVerificationDto,
     ): void {
-        if (dto.isDocumentVerified !== undefined) {
-            const documentStatus = dto.isDocumentVerified ? DocumentVerificationStatus.VERIFIED : null;
+        if (dto.documentVerified !== undefined) {
+            const documentStatus = dto.documentVerified ? DocumentVerificationStatus.VERIFIED : null;
 
             if (userType === UserType.BUSINESS) {
                 updateData.businessDocumentVerificationStatus = documentStatus;
             } else {
                 updateData.documentVerificationStatus = documentStatus;
             }
-        }
-
-        if (dto.isAddressVerified !== undefined) {
-            updateData.addressVerificationStatus = dto.isAddressVerified
-                ? DocumentVerificationStatus.VERIFIED
-                : null;
-        }
-
-        if (dto.isIncomeVerified !== undefined) {
-            updateData.incomeVerificationStatus = dto.isIncomeVerified
-                ? DocumentVerificationStatus.VERIFIED
-                : null;
         }
     }
 
@@ -1207,22 +2802,28 @@ export class KycService {
 
         let updateData: Prisma.UserUpdateInput = this.buildKycUpdateData(action, verificationType);
 
-        const updatedUser = await this.prisma.user.update({
-            where: { id: userId },
-            data: updateData,
-            select: {
-                id: true,
-                email: true,
-                tier: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
-                addressVerificationStatus: true,
-                incomeVerificationStatus: true,
-                documentVerificationStatus: true,
-            },
+        const updatedUser = Object.keys(updateData).length > 0
+            ? await this.prisma.user.update({
+                where: { id: userId },
+                data: updateData,
+                select: this.buildAdminVerificationSelect(),
+            })
+            : await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: this.buildAdminVerificationSelect(),
+            });
+
+        await this.syncLegacyDocumentStatusAfterDecision(userId, verificationType, action);
+
+        const currentAttempt = await this.resolveDecisionBridgeContext(userId, verificationType);
+
+        const updatedStageAttempt = await this.applyDecisionToCurrentStageAttempt({
+            userId,
+            verificationType,
+            action,
+            note,
+            adminId,
+            currentAttempt,
         });
 
         // Recalculate tier from verification flags and flush profile cache
@@ -1240,6 +2841,15 @@ export class KycService {
                 verificationType,
                 note,
             },
+        });
+
+        await this.shadowWriteDecisionAttemptEvent({
+            userId,
+            verificationType,
+            action,
+            note,
+            adminId,
+            attempt: updatedStageAttempt,
         });
 
         // Send notification to user about KYC status
@@ -1285,6 +2895,213 @@ export class KycService {
         });
     }
 
+    private async syncLegacyDocumentStatusAfterDecision(
+        userId: number,
+        verificationType: string,
+        action: KycDecisionAction,
+    ): Promise<void> {
+        if (verificationType !== "DOCUMENT") {
+            return;
+        }
+
+        const statusByAction: Partial<Record<KycDecisionAction, DocumentVerificationStatus>> = {
+            APPROVE: DocumentVerificationStatus.VERIFIED,
+            REJECT: DocumentVerificationStatus.DECLINED,
+            ESCALATE: DocumentVerificationStatus.PENDING,
+        };
+        const verificationStatus = statusByAction[action];
+
+        if (!verificationStatus) {
+            return;
+        }
+
+        const safeUserId = Number(userId);
+        if (!Number.isSafeInteger(safeUserId) || safeUserId <= 0) {
+            throw new BadRequestException("Invalid user id for document status sync");
+        }
+
+        await this.prisma.$executeRaw`
+            UPDATE "UserDocuments"
+            SET "verificationStatus" = ${verificationStatus}::"DocumentVerificationStatus",
+                "updatedAt" = NOW()
+            WHERE "userId" = ${safeUserId}
+        `;
+    }
+
+    private async shadowWriteDecisionAttemptEvent(params: {
+        userId: number;
+        verificationType: string;
+        action: KycDecisionAction;
+        note?: string;
+        adminId?: number;
+        attempt?: {
+            id: number;
+            journeyType: string;
+            stage: string;
+            status?: string | null;
+            providerRef?: string | null;
+            reviewNote?: string | null;
+            version?: number | null;
+        } | null;
+    }): Promise<void> {
+        if (!this.isAttemptOwnedDecisionVerificationType(params.verificationType)) {
+            return;
+        }
+
+        const attempt = params.attempt
+            ?? await this.resolveShadowAttemptForVerification(
+                params.userId,
+                params.verificationType,
+            );
+
+        if (!attempt) {
+            return;
+        }
+
+        const payload: PersistedAdminDecisionEventPayload = {
+            source: "ADMIN_DECISION",
+            verificationType: params.verificationType,
+            action: params.action,
+            auditAction: this.mapDecisionActionToAuditAction(params.action),
+            note: params.note ?? params.attempt?.reviewNote ?? null,
+            attemptId: attempt.id,
+            attemptVersion: typeof (params.attempt?.version ?? attempt.version) === "number"
+                ? (params.attempt?.version ?? attempt.version)
+                : null,
+        };
+
+        try {
+            await (this.prisma as any).kycAttemptEvent.create({
+                data: {
+                    attemptId: attempt.id,
+                    userId: params.userId,
+                    journeyType: attempt.journeyType,
+                    stage: attempt.stage,
+                    eventType: this.mapDecisionActionToEventType(params.action),
+                    actorType: typeof params.adminId === "number" ? "ADMIN" : "SYSTEM",
+                    actorId: params.adminId ?? null,
+                    note: payload.note ?? undefined,
+                    payload: payload as unknown as Prisma.InputJsonValue,
+                },
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown error";
+            this.logger.error(`Failed to shadow-write KYC decision event for user ${params.userId}: ${message}`);
+        }
+    }
+
+    private async applyDecisionToCurrentStageAttempt(params: {
+        userId: number;
+        verificationType: string;
+        action: KycDecisionAction;
+        note?: string;
+        adminId?: number;
+        currentAttempt?: {
+            id: number;
+            journeyType: string;
+            stage: string;
+            status?: string | null;
+            providerRef?: string | null;
+            reviewerId?: number | null;
+            reviewNote?: string | null;
+            reviewedAt?: Date | null;
+            version?: number | null;
+        } | null;
+    }): Promise<{ id: number; journeyType: string; stage: string; version?: number | null } | null> {
+        if (!this.isAttemptOwnedDecisionVerificationType(params.verificationType)) {
+            return null;
+        }
+
+        const attempt = params.currentAttempt ?? await this.resolveShadowAttemptForVerification(
+            params.userId,
+            params.verificationType,
+        );
+
+        if (!attempt) {
+            return null;
+        }
+
+        const nextVersion = typeof attempt.version === "number"
+            ? attempt.version + 1
+            : null;
+        const decisionNote = params.note ?? attempt.reviewNote ?? null;
+        const stageUpdateData: any = {
+            status: this.mapDecisionActionToStageAttemptStatus(params.action),
+            providerStatus: this.mapDecisionActionToStageProviderStatus(params.action),
+            decisionMode: "MANUAL",
+            reviewerId: params.adminId ?? attempt.reviewerId ?? null,
+            reviewNote: decisionNote,
+            reviewedAt: params.action === "ESCALATE"
+                ? attempt.reviewedAt ?? null
+                : attempt.reviewedAt ?? new Date(),
+            escalatedAt: params.action === "ESCALATE"
+                ? attempt.reviewedAt ?? new Date()
+                : null,
+            providerRef: attempt.providerRef ?? null,
+            reasonCode: null,
+            reasonMessage: params.action === "APPROVE" ? null : decisionNote,
+            reasonDetails: params.action === "APPROVE" || !decisionNote ? Prisma.DbNull : { reason: decisionNote },
+        };
+
+        if (typeof nextVersion === "number") {
+            stageUpdateData.version = nextVersion;
+        }
+
+        await this.prisma.kycStageAttempt.update({
+            where: { id: attempt.id },
+            data: stageUpdateData,
+        });
+
+        return {
+            ...attempt,
+            version: nextVersion ?? attempt.version ?? null,
+        };
+    }
+
+    private mapDecisionActionToStageAttemptStatus(action: KycDecisionAction): KycAttemptStatus {
+        switch (action) {
+            case "APPROVE":
+                return KycAttemptStatus.APPROVED;
+            case "REJECT":
+                return KycAttemptStatus.REJECTED;
+            case "ESCALATE":
+                return KycAttemptStatus.ESCALATED;
+        }
+    }
+
+    private mapDecisionActionToStageProviderStatus(action: KycDecisionAction): string {
+        switch (action) {
+            case "APPROVE":
+                return "PASSED";
+            case "REJECT":
+                return "FAILED";
+            case "ESCALATE":
+                return "INCONCLUSIVE";
+        }
+    }
+
+    private mapDecisionActionToAuditAction(action: KycDecisionAction): string {
+        switch (action) {
+            case "APPROVE":
+                return "KYC_APPROVE";
+            case "REJECT":
+                return "KYC_REJECT";
+            case "ESCALATE":
+                return "KYC_ESCALATE";
+        }
+    }
+
+    private mapDecisionActionToEventType(action: KycDecisionAction): string {
+        switch (action) {
+            case "APPROVE":
+                return "APPROVED";
+            case "REJECT":
+                return "REJECTED";
+            case "ESCALATE":
+                return "ESCALATED";
+        }
+    }
+
     private async sendKycEmail(
         user: any,
         action: "APPROVE" | "REJECT" | "ESCALATE",
@@ -1327,7 +3144,7 @@ export class KycService {
                 });
                 this.logger.log(`KYC escalation email sent to ${user.email}`);
             } catch (error) {
-                this.logger.error(`Failed to send KYC escalation email to ${user.email}: ${error.message}`);
+                this.logger.error(`Failed to send KYC escalation email to ${user.email}: ${this.getErrorMessage(error)}`);
             }
             return;
         }
@@ -1367,7 +3184,7 @@ export class KycService {
             });
             this.logger.log(`KYC email sent to ${user.email} (${action})`);
         } catch (error) {
-            this.logger.error(`Failed to send KYC email to ${user.email}: ${error.message}`);
+            this.logger.error(`Failed to send KYC email to ${user.email}: ${this.getErrorMessage(error)}`);
         }
     }
 
@@ -1376,6 +3193,29 @@ export class KycService {
     async updateUserTier(userId: number, dto: UpdateUserTierDto, adminId?: number): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
+            select: {
+                id: true,
+                tier: true,
+                userType: true,
+                bvn: true,
+                nin: true,
+                isEmailVerified: true,
+                isDocumentVerified: true,
+                businessDocumentVerificationStatus: true,
+                kycStageAttempts: {
+                    where: {
+                        isCurrent: true,
+                        journeyType: "INDIVIDUAL",
+                        stage: { in: ["GOVERNMENT_ID", "ADDRESS", "INCOME"] },
+                    },
+                    select: {
+                        stage: true,
+                        method: true,
+                        status: true,
+                        isCurrent: true,
+                    },
+                },
+            },
         });
 
         if (!user) {
@@ -1435,6 +3275,34 @@ export class KycService {
     ): Promise<ApiResponse> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
+            select: {
+                id: true,
+                userType: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                dateOfBirth: true,
+                bvn: true,
+                nin: true,
+                isDocumentVerified: true,
+                documentVerificationStatus: true,
+                businessDocumentVerificationStatus: true,
+                addressDocumentUrl: true,
+                incomeDocumentUrl: true,
+                kycStageAttempts: {
+                    where: {
+                        isCurrent: true,
+                        journeyType: "INDIVIDUAL",
+                        stage: { in: ["GOVERNMENT_ID", "ADDRESS", "INCOME"] },
+                    },
+                    select: {
+                        stage: true,
+                        method: true,
+                        status: true,
+                        isCurrent: true,
+                    },
+                },
+            },
         });
 
         if (!user) {
@@ -1443,60 +3311,61 @@ export class KycService {
 
         const updateData: Prisma.UserUpdateInput = {};
         const changes: Record<string, any> = {};
+        const normalizedUser = this.normalizeVerificationState(user);
+        const { verificationSnapshot } = normalizedUser;
 
         // Guard: cannot mark BVN verified if user has no BVN on file
-        if (dto.isBvnVerified === true && !user.bvn) {
+        if (dto.bvnVerified === true && !user.bvn) {
             throw new BadRequestException(
                 "Cannot set BVN verified — user has no BVN on file. The user must complete BVN verification first.",
             );
         }
         // Guard: cannot mark NIN verified if user has no NIN on file
-        if (dto.isNinVerified === true && !user.nin) {
+        if (dto.ninVerified === true && !user.nin) {
             throw new BadRequestException(
                 "Cannot set NIN verified — user has no NIN on file. The user must complete NIN verification first.",
             );
         }
 
-        if (dto.isBvnVerified !== undefined) {
-            updateData.isBvnVerified = dto.isBvnVerified;
-            changes.bvn = { from: user.isBvnVerified, to: dto.isBvnVerified };
+        if (dto.bvnVerified !== undefined) {
+            changes.bvn = { from: verificationSnapshot.bvnVerified, to: dto.bvnVerified };
+            await this.applyStageManagedManualVerificationDecision(userId, "BVN", dto.bvnVerified, adminId, dto.reason);
         }
-        if (dto.isNinVerified !== undefined) {
-            updateData.isNinVerified = dto.isNinVerified;
-            changes.nin = { from: user.isNinVerified, to: dto.isNinVerified };
+        if (dto.ninVerified !== undefined) {
+            changes.nin = { from: verificationSnapshot.ninVerified, to: dto.ninVerified };
+            await this.applyStageManagedManualVerificationDecision(userId, "NIN", dto.ninVerified, adminId, dto.reason);
         }
-        if (dto.isDocumentVerified !== undefined) {
-            updateData.isDocumentVerified = dto.isDocumentVerified;
-            changes.document = { from: user.isDocumentVerified, to: dto.isDocumentVerified };
+        if (dto.documentVerified !== undefined) {
+            updateData.isDocumentVerified = dto.documentVerified;
+            changes.document = { from: normalizedUser.documentVerified, to: dto.documentVerified };
         }
-        if (dto.isAddressVerified !== undefined) {
-            updateData.isAddressVerified = dto.isAddressVerified;
-            changes.address = { from: user.isAddressVerified, to: dto.isAddressVerified };
+        if (dto.addressVerified !== undefined) {
+            changes.address = { from: verificationSnapshot.addressVerified, to: dto.addressVerified };
+            if (dto.addressVerified === false) {
+                updateData.addressDocumentUrl = null;
+            }
+            await this.applyStageManagedManualVerificationDecision(userId, "ADDRESS", dto.addressVerified, adminId, dto.reason);
         }
-        if (dto.isIncomeVerified !== undefined) {
-            updateData.isIncomeVerified = dto.isIncomeVerified;
-            changes.income = { from: user.isIncomeVerified, to: dto.isIncomeVerified };
+        if (dto.incomeVerified !== undefined) {
+            changes.income = { from: verificationSnapshot.incomeVerified, to: dto.incomeVerified };
+            if (dto.incomeVerified === false) {
+                updateData.incomeDocumentUrl = null;
+            }
+            await this.applyStageManagedManualVerificationDecision(userId, "INCOME", dto.incomeVerified, adminId, dto.reason);
         }
 
         this.normalizeManualVerificationStatuses(user.userType, updateData, dto);
 
-        const updatedUser = await this.prisma.user.update({
-            where: { id: userId },
-            data: updateData,
-            select: {
-                id: true,
-                email: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
-                documentVerificationStatus: true,
-                addressVerificationStatus: true,
-                incomeVerificationStatus: true,
-                businessDocumentVerificationStatus: true,
-            },
-        });
+        const updatedUser = Object.keys(updateData).length > 0
+            ? await this.prisma.user.update({
+                where: { id: userId },
+                data: updateData,
+                select: this.buildAdminVerificationSelect(),
+            })
+            : await this.prisma.user.findUnique({
+                where: { id: userId },
+                select: this.buildAdminVerificationSelect(),
+            });
 
         // Identity graph: link BVN/NIN to identity subject when admin marks verified
         await this.resolveIdentityForAdmin(dto, user, userId);
@@ -1533,10 +3402,10 @@ export class KycService {
             ? { firstName: user.firstName, lastName: user.lastName, dateOfBirth: user.dateOfBirth.toISOString().split("T")[0] }
             : undefined;
 
-        if (dto.isBvnVerified === true && user.bvn) {
+        if (dto.bvnVerified === true && user.bvn) {
             await this.identityResolution.resolveOrCreate(IdentityIdType.BVN, user.bvn, userId, biographic);
         }
-        if (dto.isNinVerified === true && user.nin) {
+        if (dto.ninVerified === true && user.nin) {
             await this.identityResolution.resolveOrCreate(IdentityIdType.NIN, user.nin, userId, biographic);
         }
     }
@@ -1575,9 +3444,7 @@ export class KycService {
             this.prisma.user.count({
                 where: {
                     ...nonAdminWhere,
-                    kycVerifications: {
-                        some: { status: "PENDING", isActive: true } as any,
-                    },
+                    ...this.buildKycStatusFilter("ACTIONABLE"),
                 },
             }),
 
@@ -1591,37 +3458,88 @@ export class KycService {
             this.prisma.user.count({
                 where: {
                     ...nonAdminWhere,
-                    kycVerifications: {
-                        some: { status: "ESCALATED", isActive: true } as any,
-                    },
+                    ...this.buildKycStatusFilter("ALL", "ESCALATED"),
                 },
             }),
 
             this.prisma.user.count({
                 where: {
                     ...nonAdminWhere,
-                    kycVerifications: {
-                        some: { status: "REJECTED", isActive: true } as any,
-                    },
+                    ...this.buildKycStatusFilter("ALL", "REJECTED"),
                 },
             }),
 
             this.prisma.user.count({
                 where: {
                     ...nonAdminWhere,
-                    kycVerifications: {
+                    OR: [
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "INDIVIDUAL",
+                                    stage: { in: this.getStageManagedJourneyStages() },
+                                    status: { in: [KycAttemptStatus.APPROVED, KycAttemptStatus.REJECTED, KycAttemptStatus.EXPIRED] },
+                                    reviewedAt: { gte: startDate, lte: endDate },
+                                },
+                            },
+                        },
+                        {
+                            kycStageAttempts: {
+                                some: {
+                                    isCurrent: true,
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                    status: { in: [KycAttemptStatus.APPROVED, KycAttemptStatus.REJECTED, KycAttemptStatus.EXPIRED] },
+                                    reviewedAt: { gte: startDate, lte: endDate },
+                                },
+                            },
+                        },
+                    ],
+                },
+            }),
+
+            this.prisma.user.count({
+                where: {
+                    ...nonAdminWhere,
+                    kycStageAttempts: {
                         some: {
-                            status: { in: ["APPROVED", "REJECTED"] },
-                            isActive: true,
-                            reviewedAt: { gte: startDate, lte: endDate },
-                        } as any,
+                            isCurrent: true,
+                            journeyType: "INDIVIDUAL",
+                            stage: "GOVERNMENT_ID",
+                            method: "BVN",
+                            status: KycAttemptStatus.APPROVED,
+                        },
                     },
                 },
             }),
-
-            this.prisma.user.count({ where: { ...nonAdminWhere, isBvnVerified: true } }),
-            this.prisma.user.count({ where: { ...nonAdminWhere, isNinVerified: true } }),
-            this.prisma.user.count({ where: { ...nonAdminWhere, isDocumentVerified: true } }),
+            this.prisma.user.count({
+                where: {
+                    ...nonAdminWhere,
+                    kycStageAttempts: {
+                        some: {
+                            isCurrent: true,
+                            journeyType: "INDIVIDUAL",
+                            stage: "GOVERNMENT_ID",
+                            method: "NIN",
+                            status: KycAttemptStatus.APPROVED,
+                        },
+                    },
+                },
+            }),
+            this.prisma.user.count({
+                where: {
+                    ...nonAdminWhere,
+                    kycStageAttempts: {
+                        some: {
+                            isCurrent: true,
+                            journeyType: "INDIVIDUAL",
+                            stage: "IDENTITY_DOCUMENT",
+                            status: KycAttemptStatus.APPROVED,
+                        },
+                    },
+                },
+            }),
 
             this.prisma.user.count({
                 where: { ...nonAdminWhere, createdAt: { gte: startDate, lte: endDate } },
@@ -1677,21 +3595,6 @@ export class KycService {
     }
 
     // ==================== HELPERS ====================
-
-    private getPendingVerifications(user: any): string[] {
-        const pending: string[] = [];
-        if (!user.isEmailVerified) pending.push("email");
-        if (!user.isPhoneVerified) pending.push("phone");
-        if (!user.isBvnVerified && user.bvn) pending.push("bvn");
-        if (!user.isNinVerified && user.nin) pending.push("nin");
-        if (!user.isDocumentVerified && user.userDocument) pending.push("document");
-        if (!user.isAddressVerified) pending.push("address");
-        if (!user.isIncomeVerified) pending.push("income");
-        if (user.userType === "BUSINESS" && user.businessDocumentsUploaded && user.businessDocumentVerificationStatus !== "VERIFIED") {
-            pending.push("businessDocument");
-        }
-        return pending;
-    }
 
     private getDateRange(period: string): { startDate: Date; endDate: Date } {
         const now = new Date();
@@ -1767,58 +3670,318 @@ export class KycService {
         return "ALL";
     }
 
-    private buildQueueMetadata(user: any, queueView: KycQueueView) {
-        const activeVerifications = [...(user.kycVerifications || [])].sort(
-            (left, right) => new Date(left.submittedAt).getTime() - new Date(right.submittedAt).getTime(),
-        );
-        const kycVerificationStatuses: Record<string, string> = {};
-        for (const kv of activeVerifications) {
-            kycVerificationStatuses[kv.verificationType] = kv.status;
+    private isStageManagedVerificationType(verificationType: string): boolean {
+        return ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType);
+    }
+
+    private isAttemptOwnedDecisionVerificationType(verificationType: string): boolean {
+        return this.isStageManagedVerificationType(verificationType)
+            || verificationType === "BUSINESS_DOCUMENT";
+    }
+
+    private isStageAttemptRecord(record: any): boolean {
+        return Boolean(record && typeof record === "object" && typeof record.stage === "string" && !record.verificationType);
+    }
+
+    private mapStageAttemptToVerificationType(stage: string, method?: string | null): string {
+        if (stage === "IDENTITY_DOCUMENT") {
+            return "DOCUMENT";
         }
 
+        if (stage === "ADDRESS" || stage === "INCOME") {
+            return stage;
+        }
+
+        if (stage === "GOVERNMENT_ID" && (method === "BVN" || method === "NIN")) {
+            return method;
+        }
+
+        return stage;
+    }
+
+    private mapStageAttemptStatusToAdminStatus(status: string): string {
+        switch (status) {
+            case "APPROVED":
+                return "APPROVED";
+            case "REJECTED":
+            case "EXPIRED":
+                return "REJECTED";
+            case "ESCALATED":
+                return "ESCALATED";
+            case "SUBMITTED":
+            case "PENDING_REVIEW":
+            default:
+                return "PENDING";
+        }
+    }
+
+    private getStageManagedJourneyStages(): KycStage[] {
+        return [KycStage.GOVERNMENT_ID, KycStage.IDENTITY_DOCUMENT, KycStage.ADDRESS, KycStage.INCOME];
+    }
+
+    private mapAdminStatusToStageAttemptStatuses(status: string): KycAttemptStatus[] {
+        switch (status) {
+            case "APPROVED":
+                return [KycAttemptStatus.APPROVED];
+            case "REJECTED":
+                return [KycAttemptStatus.REJECTED, KycAttemptStatus.EXPIRED];
+            case "ESCALATED":
+                return [KycAttemptStatus.ESCALATED];
+            case "PENDING":
+            default:
+                return [KycAttemptStatus.SUBMITTED, KycAttemptStatus.PENDING_REVIEW];
+        }
+    }
+
+    private resolveStageAttemptDocumentUrl(attempt: any): string | null {
+        const evidenceAssetUrl = Array.isArray(attempt?.evidenceAssets)
+            ? attempt.evidenceAssets.find((asset: any) => typeof asset?.storageUrl === "string")?.storageUrl ?? null
+            : null;
+
+        if (evidenceAssetUrl) {
+            return evidenceAssetUrl;
+        }
+
+        const evidenceSummary = this.getAttemptStructuredRecord(attempt?.evidenceSummary);
+        if (typeof evidenceSummary?.documentUrl === "string") {
+            return evidenceSummary.documentUrl;
+        }
+
+        return null;
+    }
+
+    private buildCurrentAttemptSummaries(user: any): AdminKycAttemptSummary[] {
+        return ((user.kycStageAttempts ?? []) as any[])
+            .filter((attempt) => attempt.isCurrent !== false)
+            .map((attempt) => this.buildAdminAttemptSummary(attempt));
+    }
+
+    private buildAttemptHistory(user: any): AdminKycAttemptSummary[] {
+        return ((user.kycStageAttempts ?? []) as any[])
+            .map((attempt) => this.buildAdminAttemptSummary(attempt))
+            .sort((left, right) => {
+            const leftTime = new Date(left.reviewedAt || left.submittedAt).getTime();
+            const rightTime = new Date(right.reviewedAt || right.submittedAt).getTime();
+            return rightTime - leftTime;
+        });
+    }
+
+    private buildAttemptRecordByVerificationType(user: any): Record<string, any> {
+        const records = [
+            ...((user.kycStageAttempts ?? []).map((attempt: any) => ({
+                verificationType: this.mapStageAttemptToVerificationType(attempt.stage, attempt.method),
+                record: attempt,
+                sortAt: new Date(attempt.reviewedAt || attempt.submittedAt).getTime(),
+            }))),
+        ].sort((left, right) => right.sortAt - left.sortAt);
+
+        return records.reduce<Record<string, any>>((accumulator, entry) => {
+            if (!accumulator[entry.verificationType]) {
+                accumulator[entry.verificationType] = entry.record;
+            }
+            return accumulator;
+        }, {});
+    }
+
+    private getImportedLegacyProviderResponse(attemptEvents: any[], attemptId?: number | null): unknown {
+        if (typeof attemptId !== "number") {
+            return null;
+        }
+
+        const importedEvent = attemptEvents.find((event) =>
+            event?.attemptId === attemptId && event?.eventType === KycAttemptEventType.IMPORTED_LEGACY_HISTORY,
+        );
+        const payload = this.getAttemptStructuredRecord(importedEvent?.payload);
+        return payload?.providerRawResponse ?? null;
+    }
+
+    private mapStageEvidenceKindToAdminKind(
+        verificationType: string,
+        evidenceKind: string,
+        evidenceSide?: string | null,
+    ): string {
+        if (verificationType === "DOCUMENT") {
+            if (evidenceKind === "BACK_IMAGE" || evidenceSide === "BACK") {
+                return "DOCUMENT_BACK";
+            }
+            return "DOCUMENT_FRONT";
+        }
+
+        if (verificationType === "ADDRESS") {
+            return "ADDRESS_DOCUMENT";
+        }
+
+        if (verificationType === "INCOME") {
+            return "INCOME_DOCUMENT";
+        }
+
+        return evidenceKind;
+    }
+
+    private getStageEvidenceLabel(
+        verificationType: string,
+        evidenceKind: string,
+        evidenceSide?: string | null,
+    ): string {
+        const kind = this.mapStageEvidenceKindToAdminKind(verificationType, evidenceKind, evidenceSide);
+        const labels: Record<string, string> = {
+            DOCUMENT_FRONT: "Identity document front",
+            DOCUMENT_BACK: "Identity document back",
+            ADDRESS_DOCUMENT: "Address document",
+            INCOME_DOCUMENT: "Income document",
+        };
+
+        return labels[kind] ?? "Verification document";
+    }
+
+    private buildAdminAttemptSummary(
+        attempt: any,
+        options: { queueReason?: string | null; attemptNumbers?: Map<number, number> } = {},
+    ): AdminKycAttemptSummary {
+        const verificationType = this.mapStageAttemptToVerificationType(attempt.stage, attempt.method);
+        const status = this.mapStageAttemptStatusToAdminStatus(attempt.status);
+
+        return {
+            attemptId: attempt.id,
+            verificationType,
+            stage: attempt.stage,
+            method: attempt.method ?? null,
+            status,
+            providerStatus: attempt.providerStatus ?? null,
+            attemptNo: attempt.attemptNo ?? options.attemptNumbers?.get(attempt.id) ?? null,
+            version: this.resolveAdminAttemptVersion(attempt),
+            submittedAt: attempt.submittedAt,
+            reviewedAt: attempt.reviewedAt ?? null,
+            reviewerId: attempt.reviewerId ?? null,
+            reviewNote: attempt.reviewNote ?? attempt.reasonMessage ?? null,
+            providerRef: attempt.providerRef ?? null,
+            documentUrl: this.resolveStageAttemptDocumentUrl(attempt),
+            isActive: attempt.isCurrent ?? true,
+            queueReason: options.queueReason ?? null,
+            recommendedDecision: this.getRecommendedDecisionForAttempt(status),
+            allowedActions: this.getAllowedAttemptActions(verificationType, status),
+        };
+    }
+
+    private mapVerificationTypeToAttemptStage(verificationType: string): string {
+        const stageMap: Record<string, string> = {
+            BVN: "GOVERNMENT_ID",
+            NIN: "GOVERNMENT_ID",
+            DOCUMENT: "IDENTITY_DOCUMENT",
+            ADDRESS: "ADDRESS",
+            INCOME: "INCOME",
+            BUSINESS_DOCUMENT: "BUSINESS_DOCUMENT",
+        };
+
+        return stageMap[verificationType] ?? verificationType;
+    }
+
+    private mapVerificationTypeToJourneyType(verificationType: string): string {
+        return verificationType === "BUSINESS_DOCUMENT"
+            ? "BUSINESS"
+            : "INDIVIDUAL";
+    }
+
+    private mapVerificationTypeToAttemptMethod(verificationType: string): string | null {
+        if (verificationType === "BVN" || verificationType === "NIN") {
+            return verificationType;
+        }
+
+        if (["DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType)) {
+            return "DOCUMENT";
+        }
+
+        return null;
+    }
+
+    private getRecommendedDecisionForAttempt(status: string): AdminKycRecommendedDecision | null {
+        if (status === "APPROVED") return "APPROVE";
+        if (status === "REJECTED") return "REJECT";
+        if (this.actionableStatuses.has(status)) return "REVIEW";
+        return null;
+    }
+
+    private resolveAdminAttemptVersion(verification: any): number | null {
+        return typeof verification?.version === "number"
+            ? verification.version
+            : null;
+    }
+
+    private getAllowedAttemptActions(verificationType: string, status: string): AdminKycAttemptAction[] {
+        const actions: AdminKycAttemptAction[] = [];
+
+        if (this.actionableStatuses.has(status)) {
+            actions.push("APPROVE", "REJECT", "ESCALATE");
+        }
+
+        if (this.canRecheckVerificationType(verificationType)) {
+            actions.push("RECHECK");
+        }
+
+        return actions;
+    }
+
+    private canRecheckVerificationType(verificationType: string): boolean {
+        return ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"].includes(verificationType);
+    }
+
+    private buildQueueMetadata(user: any, queueView: KycQueueView) {
+        const latestActivityByAttemptId = this.buildLatestAttemptActivityIndex(user.kycAttemptEvents ?? []);
+        const activeVerifications = this.buildCurrentAttemptSummaries(user)
+            .map((attempt) => this.attachLatestAttemptActivity(attempt, latestActivityByAttemptId))
+            .sort(
+            (left, right) => new Date(left.submittedAt).getTime() - new Date(right.submittedAt).getTime(),
+            );
         const actionableVerifications = activeVerifications.filter((kv) => kv.status === "PENDING");
         const latestVerification = [...activeVerifications].sort(
             (left, right) => {
-                const leftTime = new Date(left.reviewedAt || left.submittedAt).getTime();
-                const rightTime = new Date(right.reviewedAt || right.submittedAt).getTime();
+                const leftTime = new Date(left.latestActivityAt || left.reviewedAt || left.submittedAt).getTime();
+                const rightTime = new Date(right.latestActivityAt || right.reviewedAt || right.submittedAt).getTime();
                 return rightTime - leftTime;
             },
         )[0];
         const blockingVerificationTypes = this.getBlockingVerificationTypes(user);
-        const pendingVerifications = actionableVerifications.length > 0
-            ? actionableVerifications.map((kv) => this.mapVerificationTypeToPendingKey(kv.verificationType))
-            : blockingVerificationTypes;
         const queueReason = actionableVerifications.length > 0
             ? this.getSubmittedForReviewReason(actionableVerifications)
             : this.getAwaitingUserReason(blockingVerificationTypes, user.userType);
         const oldestSubmittedAt = actionableVerifications[0]?.submittedAt ?? null;
+        const latestAttempt = latestVerification
+            ? { ...latestVerification, queueReason }
+            : null;
+        const actionableAttempts = actionableVerifications.map((verification) => ({ ...verification, queueReason }));
+        const activeAttempt = actionableAttempts[0] ?? latestAttempt;
 
         return {
-            pendingVerifications,
             needsReview: actionableVerifications.length > 0,
-            kycVerificationStatuses,
             queueReason,
-            actionableVerificationTypes: actionableVerifications.map((kv) => kv.verificationType),
             blockingVerificationTypes,
             oldestSubmittedAt,
-            latestReviewState: latestVerification?.status ?? null,
-            latestReviewAt: latestVerification?.reviewedAt ?? null,
-            currentVerificationVersion: actionableVerifications[0]?.version ?? latestVerification?.version ?? null,
-            queueSortAt: oldestSubmittedAt || latestVerification?.submittedAt || user.updatedAt || user.createdAt,
+            latestReviewAt: latestVerification?.latestActivityAt ?? latestVerification?.reviewedAt ?? null,
+            queueSortAt: oldestSubmittedAt || latestVerification?.latestActivityAt || latestVerification?.submittedAt || user.updatedAt || user.createdAt,
             queueView,
+            activeAttempt,
+            latestAttempt,
+            actionableAttempts,
         };
     }
 
     private getBlockingVerificationTypes(user: any): string[] {
+        const normalizedUser = this.normalizeVerificationState(user);
+        const { verificationSnapshot } = normalizedUser;
+        const currentGovernmentAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BVN")
+            ?? this.getCurrentStageAttemptForVerificationType(normalizedUser, "NIN");
+        const currentDocumentAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "DOCUMENT");
+        const currentAddressAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "ADDRESS");
+        const currentIncomeAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "INCOME");
+        const currentBusinessAttempt = this.getCurrentStageAttemptForVerificationType(normalizedUser, "BUSINESS_DOCUMENT");
         const pending: string[] = [];
-        if (!user.isEmailVerified) pending.push("EMAIL");
-        if (!user.isPhoneVerified) pending.push("PHONE");
-        if (!user.isBvnVerified && !user.bvn) pending.push("BVN");
-        if (!user.isNinVerified && !user.nin) pending.push("NIN");
-        if (!user.isDocumentVerified && !user.userDocument) pending.push("DOCUMENT");
-        if (!user.isAddressVerified && !user.addressDocumentUrl) pending.push("ADDRESS");
-        if (!user.isIncomeVerified && !user.incomeDocumentUrl) pending.push("INCOME");
-        if (user.userType === UserType.BUSINESS && !user.businessDocumentsUploaded) pending.push("BUSINESS_DOCUMENT");
+        if (!normalizedUser.emailVerified) pending.push("EMAIL");
+        if (!normalizedUser.phoneVerified) pending.push("PHONE");
+        if (!verificationSnapshot.bvnVerified && !verificationSnapshot.ninVerified && !normalizedUser.bvn && !normalizedUser.nin && !currentGovernmentAttempt) pending.push("BVN");
+        if (!normalizedUser.documentVerified && !normalizedUser.userDocument && !currentDocumentAttempt) pending.push("DOCUMENT");
+        if (!verificationSnapshot.addressVerified && !normalizedUser.addressDocumentUrl && !currentAddressAttempt) pending.push("ADDRESS");
+        if (!verificationSnapshot.incomeVerified && !normalizedUser.incomeDocumentUrl && !currentIncomeAttempt) pending.push("INCOME");
+        if (normalizedUser.userType === UserType.BUSINESS && !normalizedUser.businessDocument && !currentBusinessAttempt) pending.push("BUSINESS_DOCUMENT");
         return pending;
     }
 
@@ -1842,20 +4005,6 @@ export class KycService {
             : `${actionableVerifications.length} verifications`;
 
         return `Submitted ${submittedTarget} for review`;
-    }
-
-    private mapVerificationTypeToPendingKey(verificationType: string): string {
-        const map: Record<string, string> = {
-            EMAIL: "email",
-            PHONE: "phone",
-            BVN: "bvn",
-            NIN: "nin",
-            DOCUMENT: "document",
-            ADDRESS: "address",
-            INCOME: "income",
-            BUSINESS_DOCUMENT: "businessDocument",
-        };
-        return map[verificationType] || verificationType.toLowerCase();
     }
 
     private getVerificationLabel(verificationType: string): string {
@@ -1900,25 +4049,51 @@ export class KycService {
         resolvedQueueView: KycQueueView,
         status?: string,
     ): Prisma.UserWhereInput {
+        const stageManagedStages = this.getStageManagedJourneyStages();
+        const buildBusinessStageCondition = (statuses: string[]): Prisma.UserWhereInput => ({
+            kycStageAttempts: {
+                some: {
+                    isCurrent: true,
+                    journeyType: "BUSINESS",
+                    stage: "BUSINESS_DOCUMENT",
+                    status: { in: statuses as any },
+                },
+            },
+        });
+
         if (status === "APPROVED" || status === "REJECTED" || status === "ESCALATED") {
             return {
-                kycVerifications: {
-                    some: {
-                        status,
-                        isActive: true,
-                    } as any,
-                },
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: { in: stageManagedStages },
+                                status: { in: this.mapAdminStatusToStageAttemptStatuses(status) },
+                            },
+                        },
+                    },
+                    buildBusinessStageCondition(this.mapAdminStatusToStageAttemptStatuses(status)),
+                ],
             };
         }
 
         if (resolvedQueueView === "ACTIONABLE") {
             return {
-                kycVerifications: {
-                    some: {
-                        status: "PENDING",
-                        isActive: true,
-                    } as any,
-                },
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: { in: stageManagedStages },
+                                status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                            },
+                        },
+                    },
+                    buildBusinessStageCondition(this.mapAdminStatusToStageAttemptStatuses("PENDING")),
+                ],
             };
         }
 
@@ -1928,12 +4103,19 @@ export class KycService {
 
         if (resolvedQueueView === "RESOLVED") {
             return {
-                kycVerifications: {
-                    some: {
-                        status: { in: ["APPROVED", "REJECTED", "ESCALATED"] },
-                        isActive: true,
-                    } as any,
-                },
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: { in: stageManagedStages },
+                                status: { in: ["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"] },
+                            },
+                        },
+                    },
+                    buildBusinessStageCondition(["APPROVED", "REJECTED", "ESCALATED", "EXPIRED"]),
+                ],
             };
         }
 
@@ -1945,28 +4127,105 @@ export class KycService {
             AND: [
                 {
                     OR: [
-                        { isBvnVerified: false, bvn: null },
-                        { isNinVerified: false, nin: null },
-                        { isDocumentVerified: false, userDocument: { is: null } },
-                        { isAddressVerified: false, addressDocumentUrl: null },
-                        { isIncomeVerified: false, incomeDocumentUrl: null },
                         {
-                            userType: UserType.BUSINESS,
-                            OR: [
-                                { businessDocumentsUploaded: false },
-                                { businessDocumentVerificationStatus: null },
+                            AND: [
+                                { bvn: null },
+                                { nin: null },
+                                {
+                                    kycStageAttempts: {
+                                        none: {
+                                            isCurrent: true,
+                                            journeyType: "INDIVIDUAL",
+                                            stage: "GOVERNMENT_ID",
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            AND: [
+                                { isDocumentVerified: false },
+                                { userDocument: { is: null } },
+                                {
+                                    kycStageAttempts: {
+                                        none: {
+                                            isCurrent: true,
+                                            journeyType: "INDIVIDUAL",
+                                            stage: "IDENTITY_DOCUMENT",
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            AND: [
+                                { addressDocumentUrl: null },
+                                {
+                                    kycStageAttempts: {
+                                        none: {
+                                            isCurrent: true,
+                                            journeyType: "INDIVIDUAL",
+                                            stage: "ADDRESS",
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            AND: [
+                                { incomeDocumentUrl: null },
+                                {
+                                    kycStageAttempts: {
+                                        none: {
+                                            isCurrent: true,
+                                            journeyType: "INDIVIDUAL",
+                                            stage: "INCOME",
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                        {
+                            AND: [
+                                { userType: UserType.BUSINESS },
+                                { businessDocument: { is: null } },
+                                {
+                                    kycStageAttempts: {
+                                        none: {
+                                            isCurrent: true,
+                                            journeyType: "BUSINESS",
+                                            stage: "BUSINESS_DOCUMENT",
+                                        },
+                                    },
+                                },
                             ],
                         },
                     ],
                 },
                 {
                     NOT: {
-                        kycVerifications: {
-                            some: {
-                                status: "PENDING",
-                                isActive: true,
-                            } as any,
-                        },
+                        OR: [
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "INDIVIDUAL",
+                                        stage: { in: this.getStageManagedJourneyStages() },
+                                        status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                                    },
+                                },
+                            },
+                            {
+                                kycStageAttempts: {
+                                    some: {
+                                        isCurrent: true,
+                                        journeyType: "BUSINESS",
+                                        stage: "BUSINESS_DOCUMENT",
+                                        status: { in: this.mapAdminStatusToStageAttemptStatuses("PENDING") },
+                                    },
+                                },
+                            },
+                        ],
                     },
                 },
             ],
@@ -1979,12 +4238,92 @@ export class KycService {
         }
 
         const typeMap: Record<string, Prisma.UserWhereInput> = {
-            BVN: { isBvnVerified: false, bvn: { not: null } },
-            NIN: { isNinVerified: false, nin: { not: null } },
-            DOCUMENT: { isDocumentVerified: false, userDocument: { isNot: null } },
-            ADDRESS: { isAddressVerified: false },
-            INCOME: { isIncomeVerified: false },
-            BUSINESS_DOCUMENT: { businessDocumentsUploaded: true, businessDocumentVerificationStatus: { not: "VERIFIED" } },
+            BVN: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: "GOVERNMENT_ID",
+                                method: "BVN",
+                            },
+                        },
+                    },
+                    { bvn: { not: null } },
+                ],
+            },
+            NIN: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: "GOVERNMENT_ID",
+                                method: "NIN",
+                            },
+                        },
+                    },
+                    { nin: { not: null } },
+                ],
+            },
+            DOCUMENT: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: "IDENTITY_DOCUMENT",
+                            },
+                        },
+                    },
+                    { userDocument: { isNot: null } },
+                ],
+            },
+            ADDRESS: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: "ADDRESS",
+                            },
+                        },
+                    },
+                    { addressDocumentUrl: { not: null } },
+                ],
+            },
+            INCOME: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "INDIVIDUAL",
+                                stage: "INCOME",
+                            },
+                        },
+                    },
+                    { incomeDocumentUrl: { not: null } },
+                ],
+            },
+            BUSINESS_DOCUMENT: {
+                OR: [
+                    {
+                        kycStageAttempts: {
+                            some: {
+                                isCurrent: true,
+                                journeyType: "BUSINESS",
+                                stage: "BUSINESS_DOCUMENT",
+                            },
+                        },
+                    },
+                    { businessDocument: { isNot: null } },
+                ],
+            },
         };
 
         return typeMap[verificationType] ? [typeMap[verificationType]] : [];
@@ -2016,6 +4355,157 @@ export class KycService {
         return [{ createdAt: sortBy }];
     }
 
+    private buildVerificationSnapshot(user: any) {
+        return buildIndividualVerificationSnapshot({
+            userType: user?.userType,
+            kycStageAttempts: user?.kycStageAttempts,
+            bvn: user?.bvn,
+            nin: user?.nin,
+        });
+    }
+
+    private normalizeVerificationState(user: any) {
+        const verificationSnapshot = this.buildVerificationSnapshot(user);
+
+        return {
+            ...user,
+            emailVerified: user?.emailVerified ?? user?.isEmailVerified ?? false,
+            phoneVerified: user?.phoneVerified ?? user?.isPhoneVerified ?? false,
+            documentVerified: user?.documentVerified ?? user?.isDocumentVerified ?? false,
+            verificationSnapshot,
+        };
+    }
+
+    private getCurrentStageAttemptForVerificationType(user: any, verificationType: string) {
+        switch (verificationType) {
+            case "BVN":
+                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "GOVERNMENT_ID", "BVN");
+            case "NIN":
+                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "GOVERNMENT_ID", "NIN");
+            case "DOCUMENT":
+                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "IDENTITY_DOCUMENT");
+            case "ADDRESS":
+                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "ADDRESS");
+            case "INCOME":
+                return getCurrentIndividualStageAttempt(user?.kycStageAttempts, "INCOME");
+            case "BUSINESS_DOCUMENT":
+                return (user?.kycStageAttempts ?? []).find(
+                    (attempt: any) => attempt?.isCurrent !== false && attempt?.stage === "BUSINESS_DOCUMENT",
+                ) ?? null;
+            default:
+                return null;
+        }
+    }
+
+    private mapStageAttemptStatusToKycStatus(status?: string | null): KycStatus {
+        switch (status) {
+            case "APPROVED":
+                return KycStatus.APPROVED;
+            case "REJECTED":
+            case "EXPIRED":
+                return KycStatus.REJECTED;
+            case "ESCALATED":
+                return KycStatus.ESCALATED;
+            case "SUBMITTED":
+            case "PENDING_REVIEW":
+            default:
+                return KycStatus.PENDING;
+        }
+    }
+
+    private mapKycStatusToStageAttemptStatus(status: KycStatus): KycAttemptStatus {
+        switch (status) {
+            case KycStatus.APPROVED:
+                return KycAttemptStatus.APPROVED;
+            case KycStatus.REJECTED:
+                return KycAttemptStatus.REJECTED;
+            case KycStatus.ESCALATED:
+                return KycAttemptStatus.ESCALATED;
+            case KycStatus.PENDING:
+            default:
+                return KycAttemptStatus.PENDING_REVIEW;
+        }
+    }
+
+    private mapKycStatusToStageProviderStatus(status: KycStatus): string {
+        switch (status) {
+            case KycStatus.APPROVED:
+                return "PASSED";
+            case KycStatus.REJECTED:
+                return "FAILED";
+            case KycStatus.ESCALATED:
+                return "INCONCLUSIVE";
+            case KycStatus.PENDING:
+            default:
+                return "NOT_REQUESTED";
+        }
+    }
+
+    private resolveStageManagedLookupStatus(
+        user: any,
+        verificationType: AdminKycProviderLookupType,
+        isVerified: boolean,
+        fallbackStatus?: DocumentVerificationStatus | null,
+    ): KycStatus {
+        const currentAttempt = this.getCurrentStageAttemptForVerificationType(user, verificationType);
+
+        if (currentAttempt?.status) {
+            return this.mapStageAttemptStatusToKycStatus(currentAttempt.status);
+        }
+
+        return this.resolveDocumentLookupStatus(fallbackStatus, isVerified);
+    }
+
+    private buildAdminVerificationSelect(): Prisma.UserSelect {
+        return {
+            id: true,
+            email: true,
+            tier: true,
+            userType: true,
+            bvn: true,
+            nin: true,
+            isDocumentVerified: true,
+            documentVerificationStatus: true,
+            businessDocumentVerificationStatus: true,
+            addressDocumentUrl: true,
+            incomeDocumentUrl: true,
+            kycStageAttempts: {
+                where: {
+                    isCurrent: true,
+                    journeyType: "INDIVIDUAL",
+                    stage: { in: ["GOVERNMENT_ID", "ADDRESS", "INCOME"] },
+                },
+                select: {
+                    stage: true,
+                    method: true,
+                    status: true,
+                    isCurrent: true,
+                },
+            },
+        };
+    }
+
+    private async applyStageManagedManualVerificationDecision(
+        userId: number,
+        verificationType: "BVN" | "NIN" | "ADDRESS" | "INCOME",
+        isVerified: boolean,
+        adminId?: number,
+        note?: string,
+    ): Promise<void> {
+        const action: KycDecisionAction = isVerified ? "APPROVE" : "REJECT";
+        const result = await this.transitionKycDecision({
+            userId,
+            verificationType,
+            action,
+            note,
+            adminId,
+        });
+
+        if (result) {
+            throw new BadRequestException(result.message);
+        }
+    }
+
     private async transitionKycDecision(params: {
         userId: number;
         verificationType: string;
@@ -2025,17 +4515,15 @@ export class KycService {
         adminId?: number;
     }): Promise<ApiResponse | null> {
         const { userId, verificationType, action, note, version, adminId } = params;
-        const activeVerification = await this.prisma.kycVerification.findFirst({
-            where: {
-                userId,
-                verificationType: verificationType as any,
-                isActive: true,
-            },
-            orderBy: { version: "desc" },
-        });
+        const isAttemptOwnedDecision = this.isAttemptOwnedDecisionVerificationType(verificationType);
+        const currentAttempt = await this.resolveDecisionBridgeContext(userId, verificationType);
 
-        this.assertDecisionPreconditions({ activeVerification, verificationType, action });
-        const expectedVersion = this.resolveDecisionVersion(activeVerification, version);
+        if (isAttemptOwnedDecision) {
+            this.assertDecisionPreconditions({ activeVerification: null, currentAttempt, verificationType, action });
+            return null;
+        }
+
+        const expectedVersion = this.resolveDecisionVersion(null, version);
 
         const kycStatusMap: Record<string, "APPROVED" | "REJECTED" | "ESCALATED"> = {
             APPROVE: "APPROVED",
@@ -2046,7 +4534,7 @@ export class KycService {
         try {
             await this.kycStateMachine.transition(
                 userId,
-                verificationType as any,
+                verificationType,
                 kycStatusMap[action],
                 {
                     expectedVersion,
@@ -2069,26 +4557,29 @@ export class KycService {
 
     private assertDecisionPreconditions(params: {
         activeVerification: { status: string } | null;
+        currentAttempt?: { status?: string | null } | null;
         verificationType: string;
         action: KycDecisionAction;
     }): void {
-        const { activeVerification, verificationType, action } = params;
+        const { activeVerification, currentAttempt, verificationType, action } = params;
+        const currentStatus = activeVerification?.status
+            ?? (currentAttempt?.status ? this.mapStageAttemptStatusToAdminStatus(currentAttempt.status) : null);
 
-        if (!activeVerification) {
+        if (!currentStatus) {
             throw new BadRequestException(
                 `No active ${verificationType} verification is awaiting admin action for this user.`,
             );
         }
 
-        if (action === "ESCALATE" && activeVerification.status !== "PENDING") {
+        if (action === "ESCALATE" && currentStatus !== "PENDING") {
             throw new BadRequestException(
                 `${verificationType} verification can only be escalated from PENDING state.`,
             );
         }
 
-        if ((action === "APPROVE" || action === "REJECT") && !this.actionableStatuses.has(activeVerification.status)) {
+        if ((action === "APPROVE" || action === "REJECT") && !this.actionableStatuses.has(currentStatus)) {
             throw new BadRequestException(
-                `${verificationType} verification is no longer actionable. Current status: ${activeVerification.status}.`,
+                `${verificationType} verification is no longer actionable. Current status: ${currentStatus}.`,
             );
         }
     }

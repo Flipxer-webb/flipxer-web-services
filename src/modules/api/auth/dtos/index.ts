@@ -423,10 +423,10 @@ export class DocumentVerificationBase64Dto {
     @IsEnum(Country)
     country: Country;
 
-    @ApiProperty({ description: "Document number (e.g., passport number, license number)" })
-    @IsNotEmpty()
+    @ApiPropertyOptional({ description: "Document number (e.g., passport number, license number)" })
+    @IsOptional()
     @IsString()
-    documentNumber: string;
+    documentNumber?: string;
 
     @ApiProperty({
         description: "Base64-encoded front image of the document (without data:image prefix)",
@@ -450,6 +450,16 @@ export class DocumentVerificationBase64Dto {
  * Returns extracted data for user to verify before final submission
  */
 export class DocumentPreviewDto {
+    @ApiProperty({
+        required: false,
+        enum: DocumentType,
+        enumName: "DocumentType",
+        description: "Selected document type/path to validate the uploaded document against",
+    })
+    @IsOptional()
+    @IsEnum(DocumentType)
+    documentType?: DocumentType;
+
     @ApiProperty({
         description: "Base64-encoded front image of the document",
     })
@@ -482,7 +492,7 @@ export class BusinessDocumentUploadDto {
 export class UploadBusinessDocumentFileDto {
     @ApiProperty({
         description:
-            "Field name identifying which document this is: cacImage, articleOfAssociationImage, boardResolutionAuthorizedAcctOpeningImage, proofOfAddressForBeneficialOwner, meansOfIdentificationForBeneficialOwner",
+            "Field name identifying the uploaded document. Supported values include cacImage, applicationForRegistration, memart, companyUtilityBills, companyAmlPolicy, scumlCertificate, companyOrganogram, companyLicense, flowsBusinessFunds, articleOfAssociationImage, boardResolutionAuthorizedAcctOpeningImage, directors[n].idDocument, directors[n].proofOfAddress, shareholders[n].idDocument, shareholders[n].proofOfAddress. Legacy beneficial-owner fields proofOfAddressForBeneficialOwner and meansOfIdentificationForBeneficialOwner remain supported.",
     })
     @IsNotEmpty()
     @IsString()
@@ -490,7 +500,7 @@ export class UploadBusinessDocumentFileDto {
 }
 
 export class UploadBusinessDocumentFileFormDto {
-    @ApiProperty({ type: "string", description: "Document field name" })
+    @ApiProperty({ type: "string", description: "Supported business document field name" })
     fieldName: string;
 
     @ApiProperty({
@@ -758,6 +768,19 @@ export class VerifyAddressUploadFormDto {
 
 export class VerifyIncomeUploadFormDto {
     @ApiProperty({ type: "string", format: "binary", description: "Income proof document (payslip, bank statement, tax document)" })
+    document: Express.Multer.File;
+}
+
+export class IndividualKycStageFileUploadFormDto {
+    @ApiPropertyOptional({
+        description: "Optional stage method override for the new stage-based KYC routes",
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    method?: string;
+
+    @ApiProperty({ type: "string", format: "binary", description: "KYC evidence file" })
     document: Express.Multer.File;
 }
 

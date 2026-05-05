@@ -26,6 +26,7 @@ import {
 import { GetUserTransactionListDto } from "../../transactions/dtos";
 import { TIER_WITHDRAWAL_LIMITS, TierLevel } from "@/modules/shared/tier-limits";
 import { AuditLogService } from "@/modules/api/audit-log";
+import { UserService } from ".";
 
 const EXCLUDED_ADMIN_USER_TYPES: UserType[] = [UserType.ADMIN, UserType.SUPER_ADMIN];
 const CUSTOMER_USER_TYPES = new Set<UserType>([UserType.INDIVIDUAL, UserType.BUSINESS]);
@@ -36,7 +37,62 @@ export class AdminUserService {
         private readonly prisma: PrismaService,
         private readonly emailService: EmailService,
         private readonly auditLogService: AuditLogService,
+        private readonly userService: UserService,
     ) {}
+
+    private buildUserInfoSelect(): Prisma.UserSelect {
+        return {
+            id: true,
+            userType: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            bvn: true,
+            nin: true,
+            gender: true,
+            country: true,
+            dateOfBirth: true,
+            status: true,
+            tier: true,
+            createdAt: true,
+            recoveryEmail: true,
+            isEmailVerified: true,
+            isPhoneVerified: true,
+            businessDocumentVerificationStatus: true,
+            businessRecordCompleted: true,
+            businessDocument: true,
+            userDocument: true,
+            businessRecord: true,
+            kycStageAttempts: {
+                where: {
+                    isCurrent: true,
+                    journeyType: "INDIVIDUAL",
+                    stage: {
+                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                    },
+                },
+                select: {
+                    id: true,
+                    stage: true,
+                    method: true,
+                    status: true,
+                    providerStatus: true,
+                    reasonCode: true,
+                    reasonMessage: true,
+                    submittedAt: true,
+                    reviewedAt: true,
+                    isCurrent: true,
+                },
+            },
+            flaggedRecord: {
+                select: {
+                    flagged: true,
+                    reason: true,
+                },
+            },
+        };
+    }
 
     async getAnalyticsOverview(period?: string, startDateStr?: string, endDateStr?: string): Promise<ApiResponse> {
         const { startDate, endDate } = startDateStr && endDateStr
@@ -327,51 +383,12 @@ export class AdminUserService {
         return { verified, pendingKyc };
     }
 
-    async getUserInfo(userId: number) {
-        const userDetail = await this.prisma.user.findUnique({
+    async getUserInfo(userId: number): Promise<ApiResponse> {
+        const userInfoSelect = this.buildUserInfoSelect();
+
+        let userDetail = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: {
-                id: true,
-                identifier: true,
-                userType: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                phone: true,
-                photo: true,
-                bvn: true,
-                nin: true,
-                accountLimit: true,
-                gender: true,
-                country: true,
-                dateOfBirth: true,
-                status: true,
-                tier: true,
-                createdAt: true,
-                recoveryEmail: true,
-                isBvnVerified: true,
-                isNinVerified: true,
-                isDocumentVerified: true,
-                isEmailVerified: true,
-                isPasswordCreated: true,
-                isPhoneVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
-                documentVerificationStatus: true,
-                addressVerificationStatus: true,
-                incomeVerificationStatus: true,
-                businessDocumentVerificationStatus: true,
-                businessRecordCompleted: true,
-                businessDocument: true,
-                userDocument: true,
-                businessRecord: true,
-                flaggedRecord: {
-                    select: {
-                        flagged: true,
-                        reason: true,
-                    },
-                },
-            },
+            select: userInfoSelect,
         });
 
         if (!userDetail) {
@@ -381,11 +398,38 @@ export class AdminUserService {
             );
         }
 
+        const {
+            identifier: _identifier,
+            photo: _photo,
+            accountLimit: _accountLimit,
+            isEmailVerified,
+            isPhoneVerified,
+            isDocumentVerified: _isDocumentVerified,
+            isPasswordCreated: _isPasswordCreated,
+            documentVerificationStatus: _documentVerificationStatus,
+            businessDocumentsUploaded: _businessDocumentsUploaded,
+            businessDocumentVerificationStatus,
+            businessRecordCompleted,
+            kycStageAttempts: _kycStageAttempts,
+            ...resolvedUserDetail
+        } = userDetail;
+        const kycJourney = userDetail.userType === UserType.INDIVIDUAL
+            ? this.userService.buildKycReadModel(userDetail).kycJourney
+            : null;
+
         const withdrawalLimit = TIER_WITHDRAWAL_LIMITS[userDetail.tier as TierLevel] ?? 0;
 
         return buildResponse({
             message: "User personal info retrieved",
-            data: { ...userDetail, withdrawalLimit },
+            data: {
+                ...resolvedUserDetail,
+                emailVerified: Boolean(isEmailVerified),
+                phoneVerified: Boolean(isPhoneVerified),
+                businessDocumentVerificationStatus,
+                businessRecordCompleted,
+                kycJourney,
+                withdrawalLimit,
+            },
         });
     }
 

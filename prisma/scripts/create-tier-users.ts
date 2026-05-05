@@ -82,7 +82,7 @@ const testUsers: TestUser[] = [
         isNinVerified: true,
         isDocumentVerified: true,
         isAddressVerified: true,
-        bvn: "22222222222",
+        bvn: "22222222223",
         nin: "33333333333",
     },
 ];
@@ -101,19 +101,20 @@ function buildUserPayload(user: TestUser, hashedPassword: string, roleId: number
         phone: user.phone,
         userType: UserType.INDIVIDUAL,
         password: hashedPassword,
-        roleId,
         firstName: user.firstName,
         lastName: user.lastName,
         tier: user.tier,
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         isPasswordCreated: user.isPasswordCreated,
-        isBvnVerified: user.isBvnVerified,
-        isNinVerified: user.isNinVerified,
         isDocumentVerified: user.isDocumentVerified,
-        isAddressVerified: user.isAddressVerified,
         bvn: user.bvn,
         nin: user.nin,
+        role: {
+            connect: {
+                id: roleId,
+            },
+        },
     };
 }
 

@@ -1,7 +1,16 @@
 import "dotenv/config";
 import {
     DocumentVerificationStatus,
-    KycVerificationType,
+    KycActorType,
+    KycAttemptEventType,
+    KycMethod,
+    KycAttemptStatus,
+    KycDecisionMode,
+    KycJourneyType,
+    KycProviderName,
+    KycProviderStatus,
+    KycStage,
+    Prisma,
     PrismaClient,
     Status,
     UserType,
@@ -66,14 +75,8 @@ async function main() {
             isEmailVerified: true,
             isPhoneVerified: true,
             isPasswordCreated: true,
-            isBvnVerified: true,
-            isNinVerified: true,
             isDocumentVerified: true,
-            isAddressVerified: true,
-            isIncomeVerified: false,
             documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
-            addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
-            incomeVerificationStatus: DocumentVerificationStatus.PENDING,
             addressDocumentUrl: TEST_USER.addressDocumentUrl,
             incomeDocumentUrl: TEST_USER.incomeDocumentUrl,
         },
@@ -97,14 +100,8 @@ async function main() {
             isEmailVerified: true,
             isPhoneVerified: true,
             isPasswordCreated: true,
-            isBvnVerified: true,
-            isNinVerified: true,
             isDocumentVerified: true,
-            isAddressVerified: true,
-            isIncomeVerified: false,
             documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
-            addressVerificationStatus: DocumentVerificationStatus.VERIFIED,
-            incomeVerificationStatus: DocumentVerificationStatus.PENDING,
             addressDocumentUrl: TEST_USER.addressDocumentUrl,
             incomeDocumentUrl: TEST_USER.incomeDocumentUrl,
         },
@@ -129,43 +126,125 @@ async function main() {
         },
     });
 
-    await prisma.kycVerification.updateMany({
+    const currentIncomeAttempt = await prisma.kycStageAttempt.findFirst({
         where: {
             userId: user.id,
-            verificationType: KycVerificationType.INCOME,
-            isActive: true,
+            journeyType: KycJourneyType.INDIVIDUAL,
+            stage: KycStage.INCOME,
+            isCurrent: true,
         },
-        data: { isActive: false },
-    });
-
-    const latestIncomeVerification = await prisma.kycVerification.findFirst({
-        where: {
-            userId: user.id,
-            verificationType: KycVerificationType.INCOME,
-        },
-        orderBy: [
-            { version: "desc" },
-            { createdAt: "desc" },
-        ],
+        orderBy: [{ attemptNo: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
         select: {
-            version: true,
+            id: true,
+            submittedAt: true,
         },
     });
 
-    await prisma.kycVerification.create({
-        data: {
+    await prisma.kycStageAttempt.updateMany({
+        where: {
             userId: user.id,
-            verificationType: KycVerificationType.INCOME,
-            status: "PENDING",
-            documentUrl: TEST_USER.incomeDocumentUrl,
-            version: (latestIncomeVerification?.version ?? 0) + 1,
-            isActive: true,
+            journeyType: KycJourneyType.INDIVIDUAL,
+            stage: KycStage.INCOME,
+            isCurrent: true,
+            ...(currentIncomeAttempt ? { id: { not: currentIncomeAttempt.id } } : {}),
+        },
+        data: {
+            isCurrent: false,
         },
     });
+
+    const extractedFields = {
+        submissionSource: "LOCAL_TEST_FIXTURE",
+        incomeDocumentUrl: TEST_USER.incomeDocumentUrl,
+    } as Prisma.InputJsonValue;
+    const evidenceSummary = {
+        incomeDocumentUrl: TEST_USER.incomeDocumentUrl,
+        submissionSource: "LOCAL_TEST_FIXTURE",
+    } as Prisma.InputJsonValue;
+
+    const incomeAttempt = currentIncomeAttempt
+        ? await prisma.kycStageAttempt.update({
+            where: { id: currentIncomeAttempt.id },
+            data: {
+                isCurrent: true,
+                status: KycAttemptStatus.PENDING_REVIEW,
+                providerName: KycProviderName.NONE,
+                providerStatus: KycProviderStatus.NOT_REQUESTED,
+                decisionMode: KycDecisionMode.MANUAL,
+                providerRef: null,
+                reviewerId: null,
+                reviewNote: null,
+                reviewedAt: null,
+                escalatedAt: null,
+                reasonCode: null,
+                reasonMessage: null,
+                reasonDetails: Prisma.DbNull,
+                extractedFields,
+                evidenceSummary,
+                submittedAt: currentIncomeAttempt.submittedAt ?? new Date(),
+            },
+            select: { id: true },
+        })
+        : await prisma.kycStageAttempt.create({
+            data: {
+                userId: user.id,
+                journeyType: KycJourneyType.INDIVIDUAL,
+                stage: KycStage.INCOME,
+                method: KycMethod.OTHER,
+                attemptNo: 1,
+                isCurrent: true,
+                status: KycAttemptStatus.PENDING_REVIEW,
+                providerName: KycProviderName.NONE,
+                providerStatus: KycProviderStatus.NOT_REQUESTED,
+                decisionMode: KycDecisionMode.MANUAL,
+                providerRef: null,
+                reviewerId: null,
+                reviewNote: null,
+                reviewedAt: null,
+                escalatedAt: null,
+                reasonCode: null,
+                reasonMessage: null,
+                reasonDetails: Prisma.DbNull,
+                extractedFields,
+                evidenceSummary,
+                submittedAt: new Date(),
+            },
+            select: { id: true },
+        });
+
+    const existingSubmissionEvent = await prisma.kycAttemptEvent.findFirst({
+        where: {
+            attemptId: incomeAttempt.id,
+            eventType: { in: [KycAttemptEventType.SUBMITTED, KycAttemptEventType.RESUBMITTED] },
+        },
+        select: { id: true },
+    });
+
+    if (!existingSubmissionEvent) {
+        await prisma.kycAttemptEvent.create({
+            data: {
+                attemptId: incomeAttempt.id,
+                userId: user.id,
+                journeyType: KycJourneyType.INDIVIDUAL,
+                stage: KycStage.INCOME,
+                eventType: KycAttemptEventType.SUBMITTED,
+                actorType: KycActorType.USER,
+                actorId: user.id,
+                providerName: KycProviderName.NONE,
+                providerStatus: KycProviderStatus.NOT_REQUESTED,
+                note: "Income document submitted for review",
+                payload: {
+                    source: "LOCAL_TEST_FIXTURE",
+                    incomeDocumentUrl: TEST_USER.incomeDocumentUrl,
+                } as Prisma.InputJsonValue,
+            },
+        });
+    }
 
     console.log("Income review test user ready");
     console.log(`  Email: ${TEST_USER.email}`);
     console.log(`  User ID: ${user.id}`);
+    console.log(`  Current income attempt ID: ${incomeAttempt.id}`);
     console.log("  State: Tier 3 with submitted income document pending admin review");
 }
 

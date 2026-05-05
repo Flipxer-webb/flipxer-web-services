@@ -46,10 +46,12 @@ import {
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
+    IndividualKycStageFileUploadFormDto,
     CreateTradingPasswordDto,
 } from "../../dtos";
 
 import { AuthService } from "../../services";
+import { IndividualKycStageService } from "../../services/individual-kyc-stage.service";
 import { TierVerificationService } from "../../services/tier-verification.service";
 import {
     ApiTags,
@@ -60,7 +62,7 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard, CountryBlockGuard } from "../../guard";
 import { User } from "@/modules/api/user/decorators";
-import { DocumentType, User as UserModel, UserType } from "@prisma/client";
+import { DocumentType, KycMethod, User as UserModel, UserType } from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import {
@@ -89,8 +91,20 @@ export class AuthController {
 
     constructor(
         private readonly authService: AuthService,
-        private readonly tierVerificationService: TierVerificationService
+        private readonly tierVerificationService: TierVerificationService,
+        private readonly individualKycStageService: IndividualKycStageService,
     ) { }
+
+    private parseKycMethod(value?: string): KycMethod | undefined {
+        if (!value) {
+            return undefined;
+        }
+
+        const normalized = value.trim().toUpperCase();
+        return Object.values(KycMethod).includes(normalized as KycMethod)
+            ? normalized as KycMethod
+            : undefined;
+    }
 
     @UseGuards(RateLimiterGuard)
     @StrictRateLimit()
@@ -324,6 +338,217 @@ export class AuthController {
             throw new RequiredFilesMissing();
         }
         return await this.authService.previewDocument(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/identity-document/preview")
+    @ApiOperation({
+        summary: "Preview identity-document stage using the staged KYC contract",
+        description: "Stage-based compatibility route for identity-document preview. Uses current Dojah OCR preview logic and returns the additive stage response shape.",
+    })
+    @ApiBearerAuth("access-token")
+    async previewIdentityDocumentStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentPreviewDto,
+    ) {
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewIdentityDocument(user, dto);
+    }
+
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/identity-document/submit")
+    @ApiOperation({
+        summary: "Submit identity-document stage using the staged KYC contract",
+        description: "Stage-based compatibility route for identity-document submit. Writes legacy records and the additive stage-attempt/evidence tables.",
+    })
+    @ApiBearerAuth("access-token")
+    async submitIdentityDocumentStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentVerificationBase64Dto,
+    ) {
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitIdentityDocument(user, dto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/government-id/bvn/submit")
+    @ApiOperation({
+        summary: "Submit government-id BVN stage using the staged KYC contract",
+        description: "Stage-based compatibility route for BVN submit. Writes legacy identity records and the additive government-id stage-attempt table.",
+    })
+    async submitGovernmentIdBvnStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: BvnVerificationDto,
+    ) {
+        this.logger.debug(
+            `[KYC][CTRL][BVN_STAGE] Request received for user ${user.id} (bvn=${this.maskSensitiveId(dto.bvn)})`,
+        );
+
+        return await this.individualKycStageService.submitGovernmentIdBvn(user, dto);
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/government-id/nin/submit")
+    @ApiOperation({
+        summary: "Submit government-id NIN stage using the staged KYC contract",
+        description: "Stage-based compatibility route for NIN submit. Writes legacy identity records and the additive government-id stage-attempt table.",
+    })
+    async submitGovernmentIdNinStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: NinVerificationDto,
+    ) {
+        this.logger.debug(
+            `[KYC][CTRL][NIN_STAGE] Request received for user ${user.id} (nin=${this.maskSensitiveId(dto.nin)})`,
+        );
+
+        return await this.individualKycStageService.submitGovernmentIdNin(user, dto);
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/address/preview")
+    @ApiOperation({ summary: "Preview address stage using the staged KYC contract" })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Address-stage preview file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 6, parts: 12 },
+        })
+    )
+    async previewAddressStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewAddressDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/address/submit")
+    @ApiOperation({ summary: "Submit address stage using the staged KYC contract" })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Address-stage submit file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 6, parts: 12 },
+        })
+    )
+    async submitAddressStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitAddressDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/income/preview")
+    @ApiOperation({ summary: "Preview income stage using the staged KYC contract" })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Income-stage preview file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 6, parts: 12 },
+        })
+    )
+    async previewIncomeStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewIncomeDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/income/submit")
+    @ApiOperation({ summary: "Submit income stage using the staged KYC contract" })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Income-stage submit file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 6, parts: 12 },
+        })
+    )
+    async submitIncomeStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitIncomeDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
     }
 
     /**

@@ -77,12 +77,12 @@ describe("DTO/type smoke coverage", () => {
             reason: "missing page",
             version: "4",
         });
-        const lookupDto = plainToInstance(KycDtos.RunKycVerificationLookupDto, {
+        const lookupDto = plainToInstance(KycDtos.RunKycProviderLookupDto, {
             userId: 9,
             verificationType: "BUSINESS_DOCUMENT",
         });
 
-        expect(KycDtos.adminKycVerificationLookupTypes).toContain("BUSINESS_DOCUMENT");
+        expect(KycDtos.adminKycProviderLookupTypes).toContain("BUSINESS_DOCUMENT");
 
         expect(queueDto.pageNumber).toBe(2);
         expect(queueDto.pageSize).toBe(25);

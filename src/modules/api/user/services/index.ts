@@ -9,6 +9,7 @@ import {
 } from "@/utils";
 import { buildResponse } from "@/utils/api-response-util";
 import {
+    BadRequestException,
     Injectable,
     forwardRef,
     Inject,
@@ -16,6 +17,7 @@ import {
     Logger,
 } from "@nestjs/common";
 import { AuthService } from "../../auth/services";
+import { IndividualKycStageService } from "../../auth/services/individual-kyc-stage.service";
 import { TierService } from "../../auth/services/tier.service";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { CloudinaryService } from "@/modules/core/upload/services/cloudinary";
@@ -33,7 +35,7 @@ import {
 import { UserNotFoundException, AuthGenericException, InvalidVerificationCodeException, VerificationCodeExpiredException, DuplicateVerificationException } from "../../auth/errors";
 import { QuidaxCacheService } from "@/modules/core/redisCache/services/quidax-cache.service";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
-import { OrderStatus, Prisma, User, UserType, DocumentVerificationStatus } from "@prisma/client";
+import { DocumentVerificationStatus, OrderStatus, Prisma, User, UserType } from "@prisma/client";
 import { IncorrectPasswordException } from "../errors";
 import { customAlphabet } from "nanoid";
 import { Ticker } from "@/libs/quidax/types/trade";
@@ -41,6 +43,103 @@ import { TradingInjectionToken } from "@/modules/factory/trading/types";
 import { LiveCoinWatchService } from "@/modules/factory/trading/providers/livecoinwatch/services";
 import { LedgerService } from "@/modules/api/trade/services/ledger/ledger.service";
 import { RateService } from "@/modules/api/trade/services/rate.service";
+import {
+    getCurrentGovernmentMethod,
+    getCurrentIndividualStageAttempt,
+    isIndividualAttemptApproved,
+    isIndividualAttemptPending,
+    isIndividualAttemptRejected,
+} from "../../auth/utils/individual-kyc-stage-state.util";
+
+type IndividualKycStage = "GOVERNMENT_ID" | "IDENTITY_DOCUMENT" | "ADDRESS" | "INCOME";
+type KycJourneyOverallStatus = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "ACTION_REQUIRED" | "VERIFIED";
+type KycJourneyNextActionType = "START" | "SUBMIT" | "RESUBMIT" | "WAIT" | "COMPLETE" | "CONTACT_SUPPORT";
+type KycJourneyStageStatus = "NOT_STARTED" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+type KycJourneyStageDisplayState = "NOT_STARTED" | "READY" | "UNDER_REVIEW" | "VERIFIED" | "NEEDS_RESUBMISSION" | "BLOCKED";
+type BusinessVerificationStatus = "NOT_STARTED" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+type BusinessVerificationDisplayState = "NOT_STARTED" | "READY" | "UNDER_REVIEW" | "VERIFIED" | "NEEDS_RESUBMISSION";
+type JourneyTimestamp = Date | string | null;
+
+interface KycJourneyStageDto {
+    stage: IndividualKycStage;
+    label: string;
+    status: KycJourneyStageStatus;
+    providerStatus: string | null;
+    displayState: KycJourneyStageDisplayState;
+    currentAttemptId: number | null;
+    currentMethod: string | null;
+    blockedBy: IndividualKycStage[];
+    canSubmit: boolean;
+    canResubmit: boolean;
+    canEscalate: boolean;
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    reasonCode: string | null;
+    reasonMessage: string | null;
+    helperText: string | null;
+    route: string | null;
+    actionLabel: string | null;
+}
+
+interface KycJourneyNextActionDto {
+    type: KycJourneyNextActionType;
+    stage: IndividualKycStage | null;
+    route: string | null;
+    label: string | null;
+    message: string | null;
+}
+
+interface KycJourneyDto {
+    overallStatus: KycJourneyOverallStatus;
+    currentStage: IndividualKycStage | null;
+    nextStage: IndividualKycStage | null;
+    completedStages: IndividualKycStage[];
+    pendingStages: IndividualKycStage[];
+    blockedStages: IndividualKycStage[];
+    currentTier: number;
+    eligibleTierAfterNextApproval: number | null;
+    nextAction: KycJourneyNextActionDto;
+    stages: KycJourneyStageDto[];
+}
+
+interface BusinessVerificationDto {
+    stage: "BUSINESS_DOCUMENT";
+    status: BusinessVerificationStatus;
+    displayState: BusinessVerificationDisplayState;
+    providerStatus: string | null;
+    currentAttemptId: number | null;
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    reasonCode: string | null;
+    reasonMessage: string | null;
+}
+
+interface JourneyStageAttemptRecord {
+    id: number;
+    journeyType?: string | null;
+    stage: string;
+    method: string | null;
+    status: string;
+    providerStatus: string | null;
+    reasonCode: string | null;
+    reasonMessage: string | null;
+    submittedAt: JourneyTimestamp;
+    reviewedAt: JourneyTimestamp;
+    isCurrent?: boolean;
+}
+
+interface JourneyStageState {
+    verified: boolean;
+    pending: boolean;
+    rejected: boolean;
+    providerStatus: string | null;
+    currentAttemptId: number | null;
+    currentMethod: string | null;
+    submittedAt: string | null;
+    reviewedAt: string | null;
+    reasonCode: string | null;
+    reasonMessage: string | null;
+}
 
 @Injectable()
 export class UserService {
@@ -55,6 +154,7 @@ export class UserService {
         private readonly prisma: PrismaService,
         @Inject(forwardRef(() => AuthService))
         private readonly authService: AuthService,
+        private readonly individualKycStageService: IndividualKycStageService,
         private readonly emailService: EmailService,
         private readonly uploadFactory: UploadFactory,
         private readonly quidaxCacheService: QuidaxCacheService,
@@ -70,18 +170,148 @@ export class UserService {
         });
     }
 
+    buildKycReadModel(profile: any) {
+        const kycJourney = this.buildKycJourney(profile);
+
+        if (profile?.userType === UserType.BUSINESS) {
+            const businessVerification = this.buildBusinessVerification(profile);
+
+            return {
+                businessVerification,
+                verificationRequirements: this.getBusinessVerificationRequirements(profile, businessVerification),
+                kycJourney,
+            };
+        }
+
+        return {
+            kycJourney,
+        };
+    }
+
+    private normalizeProfileContract<T extends Record<string, any>>(profileData: T) {
+        const {
+            isEmailVerified,
+            isPhoneVerified,
+            isPasswordCreated,
+            isDocumentVerified,
+            bvn,
+            nin,
+            verificationRequirements,
+            emailVerified,
+            phoneVerified,
+            passwordCreated,
+            documentVerified,
+            ...restProfileData
+        } = profileData;
+
+        const normalizedBooleanFields: Record<string, boolean> = {};
+
+        if (typeof emailVerified === "boolean") {
+            normalizedBooleanFields.emailVerified = emailVerified;
+        } else if (typeof isEmailVerified === "boolean") {
+            normalizedBooleanFields.emailVerified = isEmailVerified;
+        }
+
+        if (typeof phoneVerified === "boolean") {
+            normalizedBooleanFields.phoneVerified = phoneVerified;
+        } else if (typeof isPhoneVerified === "boolean") {
+            normalizedBooleanFields.phoneVerified = isPhoneVerified;
+        }
+
+        if (typeof passwordCreated === "boolean") {
+            normalizedBooleanFields.passwordCreated = passwordCreated;
+        } else if (typeof isPasswordCreated === "boolean") {
+            normalizedBooleanFields.passwordCreated = isPasswordCreated;
+        }
+
+        if (typeof documentVerified === "boolean") {
+            normalizedBooleanFields.documentVerified = documentVerified;
+            normalizedBooleanFields.isDocumentVerified = documentVerified;
+        } else if (typeof isDocumentVerified === "boolean") {
+            normalizedBooleanFields.documentVerified = isDocumentVerified;
+            normalizedBooleanFields.isDocumentVerified = isDocumentVerified;
+        }
+
+        return {
+            ...restProfileData,
+            bvn: this.maskGovernmentIdentifier(typeof bvn === "string" ? bvn : null),
+            nin: this.maskGovernmentIdentifier(typeof nin === "string" ? nin : null),
+            ...normalizedBooleanFields,
+        };
+    }
+
+    private getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+
+        if (typeof error === "string" && error.trim().length > 0) {
+            return error;
+        }
+
+        try {
+            const serialized = JSON.stringify(error);
+            return serialized && serialized !== "{}"
+                ? serialized
+                : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    private getValidatedUserId(userId: unknown): number {
+        if (typeof userId === "number" && Number.isSafeInteger(userId) && userId > 0) {
+            return userId;
+        }
+
+        throw new BadRequestException("Invalid user id");
+    }
+
     async getProfile(user: User) {
         const startTime = Date.now();
+        const shouldEnsureIndividualStages = user.userType === UserType.INDIVIDUAL;
 
         // Try to get from cache first
         const cacheKey = this.getProfileCacheKey(user.id);
         const cachedProfile = await this.redisCacheService.get<any>(cacheKey);
 
         if (cachedProfile) {
-            await this.patchStalePendingGovernmentId(cachedProfile, user.id, cacheKey);
+            if (shouldEnsureIndividualStages && this.shouldRefreshCachedIndividualProfile(cachedProfile?.data)) {
+                this.logger.debug(`[PERF] Profile cache REFRESH for user ${user.id} after stage-attempt migration check`);
+            } else {
+                const nextKycReadModel = this.buildKycReadModel(cachedProfile?.data);
+                const normalizedCachedData = this.normalizeProfileContract(cachedProfile.data);
+                const didRequirementsChange = cachedProfile?.data?.userType === UserType.BUSINESS
+                    && JSON.stringify(cachedProfile?.data?.verificationRequirements ?? null)
+                    !== JSON.stringify(nextKycReadModel.verificationRequirements ?? null);
+                const didBusinessVerificationChange = cachedProfile?.data?.userType === UserType.BUSINESS
+                    && JSON.stringify(cachedProfile?.data?.businessVerification ?? null)
+                    !== JSON.stringify(nextKycReadModel.businessVerification ?? null);
+                const didJourneyChange = JSON.stringify(cachedProfile?.data?.kycJourney ?? null)
+                    !== JSON.stringify(nextKycReadModel.kycJourney ?? null);
+                const hadLegacyProfileFlags = [
+                    "isEmailVerified",
+                    "isPhoneVerified",
+                    "isPasswordCreated",
+                ].some((legacyKey) => Object.prototype.hasOwnProperty.call(cachedProfile.data, legacyKey));
 
-            this.logger.debug(`[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`);
-            return cachedProfile;
+                if (didRequirementsChange || didBusinessVerificationChange || didJourneyChange || hadLegacyProfileFlags) {
+                    cachedProfile.data = {
+                        ...normalizedCachedData,
+                        ...nextKycReadModel,
+                    };
+                    await this.redisCacheService.set(cacheKey, cachedProfile, this.PROFILE_CACHE_TTL);
+                }
+
+                this.logger.debug(`[PERF] Profile cache HIT for user ${user.id} in ${Date.now() - startTime}ms`);
+                return {
+                    ...cachedProfile,
+                    data: {
+                        ...normalizedCachedData,
+                        ...nextKycReadModel,
+                    },
+                };
+            }
         }
 
         this.logger.debug(`[PERF] Profile cache MISS for user ${user.id}`);
@@ -103,19 +333,15 @@ export class UserService {
                     userType: true,
                     gender: true,
                     dateOfBirth: true,
+                    bvn: true,
+                    nin: true,
                     country: true,
                     status: true,
                     isEmailVerified: true,
                     isPhoneVerified: true,
                     isPasswordCreated: true,
-                    isBvnVerified: true,
-                    isNinVerified: true,
                     isDocumentVerified: true,
-                    isAddressVerified: true,
-                    isIncomeVerified: true,
                     documentVerificationStatus: true,
-                    addressVerificationStatus: true,
-                    incomeVerificationStatus: true,
                     tier: true,
                     businessRecordCompleted: true,
                     businessDocumentsUploaded: true,
@@ -149,21 +375,35 @@ export class UserService {
                             updatedAt: true,
                         },
                     },
-                    kycVerifications: {
+                    kycStageAttempts: {
                         where: {
-                            isActive: true,
-                            verificationType: {
-                                in: ["BVN", "NIN"],
-                            },
-                            status: {
-                                in: ["PENDING", "REJECTED"],
-                            },
+                            isCurrent: true,
+                            OR: [
+                                {
+                                    journeyType: "INDIVIDUAL",
+                                    stage: {
+                                        in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"],
+                                    },
+                                },
+                                {
+                                    journeyType: "BUSINESS",
+                                    stage: "BUSINESS_DOCUMENT",
+                                },
+                            ],
                         },
                         select: {
-                            verificationType: true,
+                            id: true,
+                            journeyType: true,
+                            stage: true,
+                            method: true,
                             status: true,
+                            providerStatus: true,
+                            reasonCode: true,
+                            reasonMessage: true,
+                            submittedAt: true,
+                            reviewedAt: true,
+                            isCurrent: true,
                         },
-                        take: 2,
                     },
                 },
             }),
@@ -191,19 +431,21 @@ export class UserService {
 
         // Use DB-stored tier as single source of truth
         const userTier = (profile as any).tier ?? 0;
+        const profileKycReadModel = this.buildKycReadModel(profile);
+        const normalizedProfile = this.normalizeProfileContract(profile);
 
         const response = {
             message: "Profile successfully retrieved",
             data: {
-                ...profile,
+            ...normalizedProfile,
                 recoveryEmail: profile.recoveryEmail || null,
                 assetWallet: defaultWallet,
                 // Tier info — sourced from DB column, kept in sync by syncTierAndCache
                 tier: userTier,
                 withdrawalLimit: this.tierService.getWithdrawalLimit(userTier),
                 canTransact: userTier > 0,
-                // Verification requirements to guide frontend
-                verificationRequirements: this.getVerificationRequirements(profile),
+                // KYC read-model payloads are derived from current attempts.
+                ...profileKycReadModel,
             },
         };
 
@@ -214,114 +456,595 @@ export class UserService {
         return response;
     }
 
-    /**
-     * Calculate what verification steps the user needs to take next.
-     * Crucial for Business accounts to avoid being asked for BVN/NIN.
-     */
-    private getVerificationRequirements(profile: any) {
-        if (profile.userType === UserType.BUSINESS) {
-            return this.getBusinessVerificationRequirements(profile);
-        }
-        return this.getIndividualVerificationRequirements(profile);
-    }
-
-    /**
-     * Guard against stale profile cache: if the user has unverified BVN/NIN
-     * and the cache doesn't reflect a pending review, check the DB and patch.
-     */
-    private async patchStalePendingGovernmentId(cachedProfile: any, userId: number, cacheKey: string): Promise<void> {
-        const cachedNextStep = cachedProfile?.data?.verificationRequirements?.nextStep;
-        const needsGovernmentVerification =
-            !cachedProfile?.data?.isBvnVerified &&
-            !cachedProfile?.data?.isNinVerified;
-
-        if (!needsGovernmentVerification || cachedNextStep === "WAIT_FOR_VERIFICATION") {
-            return;
+    private buildKycJourney(profile: any): KycJourneyDto | null {
+        if (!profile || profile.userType === UserType.BUSINESS) {
+            return null;
         }
 
-        const hasPendingGovernmentIdReview = await this.prisma.kycVerification.findFirst({
-            where: {
-                userId,
-                isActive: true,
-                status: "PENDING",
-                verificationType: { in: ["BVN", "NIN"] },
-            },
-            select: { id: true },
+        const governmentStageState = this.getGovernmentStageState(profile);
+        const documentStageState = this.getDocumentStageState({
+            attempt: this.getCurrentJourneyStageAttempt(profile, "IDENTITY_DOCUMENT"),
+            rejectedMessage: "Document verification was declined",
+        });
+        const addressStageState = this.getDocumentStageState({
+            attempt: this.getCurrentJourneyStageAttempt(profile, "ADDRESS"),
+            rejectedMessage: "Address verification was declined",
+        });
+        const incomeStageState = this.getDocumentStageState({
+            attempt: this.getCurrentJourneyStageAttempt(profile, "INCOME"),
+            rejectedMessage: "Income verification was declined",
         });
 
-        if (hasPendingGovernmentIdReview) {
-            cachedProfile.data.verificationRequirements = {
-                nextStep: "WAIT_FOR_VERIFICATION",
-                details: null,
+        const stages: KycJourneyStageDto[] = [
+            this.buildJourneyStage({
+                stage: "GOVERNMENT_ID",
+                completed: governmentStageState.verified,
+                blocked: !profile.isEmailVerified && !profile.emailVerified,
+                underReview: governmentStageState.pending,
+                rejected: governmentStageState.rejected,
+                route: "/verify-bvn",
+                currentMethod: governmentStageState.currentMethod,
+                currentAttemptId: governmentStageState.currentAttemptId,
+                providerStatus: governmentStageState.providerStatus,
+                submittedAt: governmentStageState.submittedAt,
+                reviewedAt: governmentStageState.reviewedAt,
+                reasonCode: governmentStageState.reasonCode,
+                readyLabel: "Verify BVN or NIN",
+                resubmitLabel: "Resubmit BVN or NIN",
+                blockedBy: [],
+                blockedHelperText: "Verify your email to continue KYC.",
+                reasonMessage: governmentStageState.reasonMessage,
+            }),
+            this.buildJourneyStage({
+                stage: "IDENTITY_DOCUMENT",
+                completed: documentStageState.verified,
+                blocked: !governmentStageState.verified,
+                underReview: documentStageState.pending,
+                rejected: documentStageState.rejected,
+                route: "/document-type",
+                currentMethod: documentStageState.currentMethod,
+                currentAttemptId: documentStageState.currentAttemptId,
+                providerStatus: documentStageState.providerStatus,
+                submittedAt: documentStageState.submittedAt,
+                reviewedAt: documentStageState.reviewedAt,
+                reasonCode: documentStageState.reasonCode,
+                readyLabel: "Complete ID Verification",
+                resubmitLabel: "Resubmit ID Document",
+                blockedBy: ["GOVERNMENT_ID"],
+                reasonMessage: documentStageState.reasonMessage,
+            }),
+            this.buildJourneyStage({
+                stage: "ADDRESS",
+                completed: addressStageState.verified,
+                blocked: !documentStageState.verified,
+                underReview: addressStageState.pending,
+                rejected: addressStageState.rejected,
+                route: "/verify-address",
+                currentMethod: addressStageState.currentMethod,
+                currentAttemptId: addressStageState.currentAttemptId,
+                providerStatus: addressStageState.providerStatus,
+                submittedAt: addressStageState.submittedAt,
+                reviewedAt: addressStageState.reviewedAt,
+                reasonCode: addressStageState.reasonCode,
+                readyLabel: "Verify Address",
+                resubmitLabel: "Resubmit Address Document",
+                blockedBy: ["IDENTITY_DOCUMENT"],
+                reasonMessage: addressStageState.reasonMessage,
+            }),
+            this.buildJourneyStage({
+                stage: "INCOME",
+                completed: incomeStageState.verified,
+                blocked: !addressStageState.verified,
+                underReview: incomeStageState.pending,
+                rejected: incomeStageState.rejected,
+                route: "/verify-income",
+                currentMethod: incomeStageState.currentMethod,
+                currentAttemptId: incomeStageState.currentAttemptId,
+                providerStatus: incomeStageState.providerStatus,
+                submittedAt: incomeStageState.submittedAt,
+                reviewedAt: incomeStageState.reviewedAt,
+                reasonCode: incomeStageState.reasonCode,
+                readyLabel: "Verify Income",
+                resubmitLabel: "Resubmit Income Document",
+                blockedBy: ["ADDRESS"],
+                reasonMessage: incomeStageState.reasonMessage,
+            }),
+        ];
+
+        const completedStages = stages
+            .filter((stage) => stage.displayState === "VERIFIED")
+            .map((stage) => stage.stage);
+        const pendingStages = stages
+            .filter((stage) => stage.displayState === "UNDER_REVIEW")
+            .map((stage) => stage.stage);
+        const blockedStages = stages
+            .filter((stage) => stage.displayState === "BLOCKED")
+            .map((stage) => stage.stage);
+
+        const overallStatus = this.getJourneyOverallStatus(stages);
+        const nextAction = this.buildJourneyNextAction(profile, stages, overallStatus);
+
+        return {
+            overallStatus,
+            currentStage: nextAction.stage,
+            nextStage: nextAction.stage,
+            completedStages,
+            pendingStages,
+            blockedStages,
+            currentTier: profile.tier ?? 0,
+            eligibleTierAfterNextApproval: this.getEligibleTierAfterNextApproval(nextAction.stage),
+            nextAction,
+            stages,
+        };
+    }
+
+    private getGovernmentStageState(profile: any): JourneyStageState {
+        const stageAttempt = this.getCurrentJourneyStageAttempt(profile, "GOVERNMENT_ID");
+        return {
+            verified: isIndividualAttemptApproved(stageAttempt?.status),
+            currentMethod: this.resolveGovernmentMethod(profile, stageAttempt?.method),
+            pending: isIndividualAttemptPending(stageAttempt?.status),
+            rejected: isIndividualAttemptRejected(stageAttempt?.status),
+            providerStatus: stageAttempt?.providerStatus ?? null,
+            currentAttemptId: stageAttempt?.id ?? null,
+            submittedAt: this.toJourneyTimestamp(stageAttempt?.submittedAt),
+            reviewedAt: this.toJourneyTimestamp(stageAttempt?.reviewedAt),
+            reasonCode: stageAttempt?.reasonCode ?? null,
+            reasonMessage: stageAttempt?.reasonMessage ?? null,
+        };
+    }
+
+    private getDocumentStageState(params: {
+        attempt: JourneyStageAttemptRecord | null;
+        rejectedMessage: string;
+    }): JourneyStageState {
+        const { attempt, rejectedMessage } = params;
+
+        if (attempt) {
+            const verified = attempt.status === "APPROVED";
+            const rejected = !verified && this.isJourneyStageRejected(attempt.status);
+            const pending = !verified && this.isJourneyStagePending(attempt.status);
+
+            return {
+                verified,
+                pending,
+                rejected,
+                providerStatus: attempt.providerStatus ?? null,
+                currentAttemptId: attempt.id,
+                currentMethod: this.formatJourneyMethod(attempt.method),
+                submittedAt: this.toJourneyTimestamp(attempt.submittedAt),
+                reviewedAt: this.toJourneyTimestamp(attempt.reviewedAt),
+                reasonCode: attempt.reasonCode ?? null,
+                reasonMessage: attempt.reasonMessage ?? (rejected ? rejectedMessage : null),
             };
-            await this.redisCacheService.set(cacheKey, cachedProfile, this.PROFILE_CACHE_TTL);
+        }
+
+        return {
+            verified: false,
+            pending: false,
+            rejected: false,
+            providerStatus: null,
+            currentAttemptId: null,
+            currentMethod: null,
+            submittedAt: null,
+            reviewedAt: null,
+            reasonCode: null,
+            reasonMessage: null,
+        };
+    }
+
+    private shouldRefreshCachedIndividualProfile(profile: any): boolean {
+        if (profile?.userType !== UserType.INDIVIDUAL) {
+            return false;
+        }
+
+        return !Array.isArray(profile?.kycStageAttempts)
+            || !Object.prototype.hasOwnProperty.call(profile, "bvn")
+            || !Object.prototype.hasOwnProperty.call(profile, "nin");
+    }
+
+    private getCurrentJourneyStageAttempt(profile: any, stage: IndividualKycStage): JourneyStageAttemptRecord | null {
+        return getCurrentIndividualStageAttempt(profile?.kycStageAttempts, stage);
+    }
+
+    private getCurrentBusinessDocumentAttempt(profile: any): JourneyStageAttemptRecord | null {
+        return (profile?.kycStageAttempts ?? []).find((attempt: any) =>
+            attempt?.isCurrent !== false
+            && attempt?.journeyType === "BUSINESS"
+            && attempt?.stage === "BUSINESS_DOCUMENT",
+        ) ?? null;
+    }
+
+    private createBusinessVerification(overrides: Partial<BusinessVerificationDto> = {}): BusinessVerificationDto {
+        return {
+            stage: "BUSINESS_DOCUMENT",
+            status: "NOT_STARTED",
+            displayState: "NOT_STARTED",
+            providerStatus: null,
+            currentAttemptId: null,
+            submittedAt: null,
+            reviewedAt: null,
+            reasonCode: null,
+            reasonMessage: null,
+            ...overrides,
+        };
+    }
+
+    private resolveBusinessVerificationStatus(status: string): BusinessVerificationStatus {
+        if (status === "APPROVED") {
+            return "APPROVED";
+        }
+
+        if (this.isJourneyStageRejected(status)) {
+            return "REJECTED";
+        }
+
+        if (this.isJourneyStagePending(status)) {
+            return "PENDING_REVIEW";
+        }
+
+        return "NOT_STARTED";
+    }
+
+    private resolveBusinessVerificationDisplayState(
+        status: BusinessVerificationStatus,
+        businessRecordCompleted: boolean,
+    ): BusinessVerificationDisplayState {
+        switch (status) {
+            case "APPROVED":
+                return "VERIFIED";
+            case "REJECTED":
+                return "NEEDS_RESUBMISSION";
+            case "PENDING_REVIEW":
+                return "UNDER_REVIEW";
+            default:
+                return businessRecordCompleted ? "READY" : "NOT_STARTED";
         }
     }
 
-    private getBusinessVerificationRequirements(profile: any) {
+    private isBusinessDocumentVerified(profile: any): boolean {
+        return profile?.businessDocumentVerificationStatus === DocumentVerificationStatus.VERIFIED;
+    }
+
+    private buildBusinessVerification(profile: any): BusinessVerificationDto | null {
+        if (profile?.userType !== UserType.BUSINESS) {
+            return null;
+        }
+
+        const currentBusinessAttempt = this.getCurrentBusinessDocumentAttempt(profile);
+
+        if (currentBusinessAttempt) {
+            const status = this.resolveBusinessVerificationStatus(currentBusinessAttempt.status);
+
+            return this.createBusinessVerification({
+                status,
+                displayState: this.resolveBusinessVerificationDisplayState(status, Boolean(profile.businessRecordCompleted)),
+                providerStatus: currentBusinessAttempt.providerStatus ?? null,
+                currentAttemptId: currentBusinessAttempt.id,
+                submittedAt: this.toJourneyTimestamp(currentBusinessAttempt.submittedAt),
+                reviewedAt: this.toJourneyTimestamp(currentBusinessAttempt.reviewedAt),
+                reasonCode: currentBusinessAttempt.reasonCode ?? null,
+                reasonMessage: currentBusinessAttempt.reasonMessage ?? null,
+            });
+        }
+
+        if (this.isBusinessDocumentVerified(profile)) {
+            return this.createBusinessVerification({
+                status: "APPROVED",
+                displayState: "VERIFIED",
+            });
+        }
+
+        return this.createBusinessVerification({
+            displayState: profile?.businessRecordCompleted ? "READY" : "NOT_STARTED",
+        });
+    }
+
+    private isJourneyStagePending(status?: string | null): boolean {
+        return isIndividualAttemptPending(status);
+    }
+
+    private isJourneyStageRejected(status?: string | null): boolean {
+        return isIndividualAttemptRejected(status);
+    }
+
+    private resolveGovernmentMethod(profile: any, method?: string | null): string | null {
+        return this.formatJourneyMethod(getCurrentGovernmentMethod({
+            kycStageAttempts: profile?.kycStageAttempts,
+            bvn: profile?.bvn,
+            nin: profile?.nin,
+        }) ?? method);
+    }
+
+    private formatJourneyMethod(method?: string | null): string | null {
+        return method ?? null;
+    }
+
+    private maskGovernmentIdentifier(value?: string | null): string | null {
+        if (!value) {
+            return null;
+        }
+
+        const trimmedValue = value.trim();
+
+        if (trimmedValue.length <= 4) {
+            return trimmedValue;
+        }
+
+        return `****${trimmedValue.slice(-4)}`;
+    }
+
+    private toJourneyTimestamp(value?: Date | string | null): string | null {
+        if (!value) {
+            return null;
+        }
+
+        return new Date(value).toISOString();
+    }
+
+    private buildJourneyStage(params: {
+        stage: IndividualKycStage;
+        completed: boolean;
+        blocked: boolean;
+        underReview: boolean;
+        rejected: boolean;
+        route: string;
+        currentMethod: string | null;
+        currentAttemptId: number | null;
+        providerStatus: string | null;
+        submittedAt: string | null;
+        reviewedAt: string | null;
+        reasonCode: string | null;
+        readyLabel: string;
+        resubmitLabel: string;
+        blockedBy: IndividualKycStage[];
+        blockedHelperText?: string;
+        reasonMessage?: string | null;
+    }): KycJourneyStageDto {
+        const labelMap: Record<IndividualKycStage, string> = {
+            GOVERNMENT_ID: "Government ID",
+            IDENTITY_DOCUMENT: "Identity Document",
+            ADDRESS: "Address",
+            INCOME: "Income",
+        };
+        const lastBlockedStage = params.blockedBy.at(-1);
+
+        const defaultBlockedHelper = lastBlockedStage
+            ? `Complete ${labelMap[lastBlockedStage].toLowerCase()} first.`
+            : null;
+
+        if (params.completed) {
+            return {
+                stage: params.stage,
+                label: labelMap[params.stage],
+                status: "APPROVED",
+                providerStatus: params.providerStatus,
+                displayState: "VERIFIED",
+                currentAttemptId: params.currentAttemptId,
+                currentMethod: params.currentMethod,
+                blockedBy: params.blockedBy,
+                canSubmit: false,
+                canResubmit: false,
+                canEscalate: false,
+                submittedAt: params.submittedAt,
+                reviewedAt: params.reviewedAt,
+                reasonCode: params.reasonCode,
+                reasonMessage: null,
+                helperText: `${labelMap[params.stage]} verified.`,
+                route: params.route,
+                actionLabel: null,
+            };
+        }
+
+        if (params.underReview) {
+            return {
+                stage: params.stage,
+                label: labelMap[params.stage],
+                status: "PENDING_REVIEW",
+                providerStatus: params.providerStatus,
+                displayState: "UNDER_REVIEW",
+                currentAttemptId: params.currentAttemptId,
+                currentMethod: params.currentMethod,
+                blockedBy: params.blockedBy,
+                canSubmit: false,
+                canResubmit: false,
+                canEscalate: true,
+                submittedAt: params.submittedAt,
+                reviewedAt: params.reviewedAt,
+                reasonCode: params.reasonCode,
+                reasonMessage: params.reasonMessage ?? `${labelMap[params.stage]} is under review.`,
+                helperText: params.reasonMessage ?? `${labelMap[params.stage]} is under review.`,
+                route: params.route,
+                actionLabel: null,
+            };
+        }
+
+        if (params.rejected) {
+            return {
+                stage: params.stage,
+                label: labelMap[params.stage],
+                status: "REJECTED",
+                providerStatus: params.providerStatus,
+                displayState: "NEEDS_RESUBMISSION",
+                currentAttemptId: params.currentAttemptId,
+                currentMethod: params.currentMethod,
+                blockedBy: params.blockedBy,
+                canSubmit: false,
+                canResubmit: true,
+                canEscalate: false,
+                submittedAt: params.submittedAt,
+                reviewedAt: params.reviewedAt,
+                reasonCode: params.reasonCode,
+                reasonMessage: params.reasonMessage ?? `${labelMap[params.stage]} was declined.`,
+                helperText: params.reasonMessage ?? `${labelMap[params.stage]} was declined.`,
+                route: params.route,
+                actionLabel: params.resubmitLabel,
+            };
+        }
+
+        if (params.blocked) {
+            return {
+                stage: params.stage,
+                label: labelMap[params.stage],
+                status: "NOT_STARTED",
+                providerStatus: params.providerStatus,
+                displayState: "BLOCKED",
+                currentAttemptId: params.currentAttemptId,
+                currentMethod: params.currentMethod,
+                blockedBy: params.blockedBy,
+                canSubmit: false,
+                canResubmit: false,
+                canEscalate: false,
+                submittedAt: params.submittedAt,
+                reviewedAt: params.reviewedAt,
+                reasonCode: params.reasonCode,
+                reasonMessage: null,
+                helperText: params.blockedHelperText ?? defaultBlockedHelper,
+                route: params.route,
+                actionLabel: null,
+            };
+        }
+
+        return {
+            stage: params.stage,
+            label: labelMap[params.stage],
+            status: "NOT_STARTED",
+            providerStatus: params.providerStatus,
+            displayState: "READY",
+            currentAttemptId: params.currentAttemptId,
+            currentMethod: params.currentMethod,
+            blockedBy: params.blockedBy,
+            canSubmit: true,
+            canResubmit: false,
+            canEscalate: false,
+            submittedAt: params.submittedAt,
+            reviewedAt: params.reviewedAt,
+            reasonCode: params.reasonCode,
+            reasonMessage: null,
+            helperText: null,
+            route: params.route,
+            actionLabel: params.readyLabel,
+        };
+    }
+
+    private getJourneyOverallStatus(stages: KycJourneyStageDto[]): KycJourneyOverallStatus {
+        if (stages.every((stage) => stage.displayState === "VERIFIED")) {
+            return "VERIFIED";
+        }
+
+        if (stages.some((stage) => stage.displayState === "UNDER_REVIEW")) {
+            return "IN_REVIEW";
+        }
+
+        if (stages.some((stage) => stage.displayState === "NEEDS_RESUBMISSION")) {
+            return "ACTION_REQUIRED";
+        }
+
+        if (stages.every((stage) => stage.displayState === "READY" || stage.displayState === "BLOCKED")) {
+            return "NOT_STARTED";
+        }
+
+        return "IN_PROGRESS";
+    }
+
+    private buildJourneyNextAction(
+        profile: any,
+        stages: KycJourneyStageDto[],
+        overallStatus: KycJourneyOverallStatus,
+    ): KycJourneyNextActionDto {
+        if (overallStatus === "VERIFIED") {
+            return {
+                type: "COMPLETE",
+                stage: null,
+                route: "/",
+                label: null,
+                message: null,
+            };
+        }
+
+        // Support both raw Prisma shape (isEmailVerified) and normalized cached shape (emailVerified)
+        if (!profile.isEmailVerified && !profile.emailVerified) {
+            return {
+                type: "START",
+                stage: null,
+                route: "/profile",
+                label: "Verify Email",
+                message: "Verify your email to continue KYC.",
+            };
+        }
+
+        const pendingStage = stages.find((stage) => stage.displayState === "UNDER_REVIEW");
+        if (pendingStage) {
+            return {
+                type: "WAIT",
+                stage: pendingStage.stage,
+                route: "/",
+                label: "Verification Pending",
+                message: pendingStage.helperText,
+            };
+        }
+
+        const rejectedStage = stages.find((stage) => stage.displayState === "NEEDS_RESUBMISSION");
+        if (rejectedStage) {
+            return {
+                type: "RESUBMIT",
+                stage: rejectedStage.stage,
+                route: rejectedStage.route,
+                label: rejectedStage.actionLabel,
+                message: rejectedStage.reasonMessage,
+            };
+        }
+
+        const readyStage = stages.find((stage) => stage.displayState === "READY");
+        if (readyStage) {
+            return {
+                type: readyStage.stage === "GOVERNMENT_ID" ? "START" : "SUBMIT",
+                stage: readyStage.stage,
+                route: readyStage.route,
+                label: readyStage.actionLabel,
+                message: null,
+            };
+        }
+
+        return {
+            type: "CONTACT_SUPPORT",
+            stage: null,
+            route: null,
+            label: "Contact Support",
+            message: "We could not determine the next KYC step.",
+        };
+    }
+
+    private getEligibleTierAfterNextApproval(stage: IndividualKycStage | null): number | null {
+        const tierMap: Record<IndividualKycStage, number> = {
+            GOVERNMENT_ID: 1,
+            IDENTITY_DOCUMENT: 2,
+            ADDRESS: 3,
+            INCOME: 4,
+        };
+
+        return stage ? tierMap[stage] : null;
+    }
+
+    private getBusinessVerificationRequirements(
+        profile: any,
+        businessVerification: BusinessVerificationDto | null = this.buildBusinessVerification(profile),
+    ) {
         const requirements = { nextStep: "COMPLETE", details: null as string | null };
+
         if (!profile.businessRecordCompleted) {
             requirements.nextStep = "BUSINESS_RECORD";
-        } else if (!profile.businessDocumentsUploaded) {
+        } else if (businessVerification?.status === "APPROVED") {
+            requirements.nextStep = "COMPLETE";
+        } else if (businessVerification?.status === "PENDING_REVIEW") {
+            requirements.nextStep = "WAIT_FOR_VERIFICATION";
+        } else if (businessVerification?.status === "REJECTED") {
             requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
-        } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.PENDING) {
-            requirements.nextStep = "WAIT_FOR_VERIFICATION";
-        } else if (profile.businessDocumentVerificationStatus === DocumentVerificationStatus.DECLINED) {
-            requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
-            requirements.details = "Previous documents were declined";
-        } else if (profile.businessDocumentVerificationStatus !== DocumentVerificationStatus.VERIFIED && !profile.isDocumentVerified) {
-            requirements.nextStep = "WAIT_FOR_VERIFICATION";
-        }
-        return requirements;
-    }
-
-    private getIndividualVerificationRequirements(profile: any) {
-        const requirements = { nextStep: "COMPLETE", details: null as string | null };
-        if (!profile.isEmailVerified) {
-            requirements.nextStep = "EMAIL_VERIFICATION";
-        } else if (!profile.isBvnVerified && !profile.isNinVerified) {
-            const governmentIdStatuses = Array.isArray(profile.kycVerifications)
-                ? profile.kycVerifications
-                : [];
-            const hasPendingGovernmentIdReview = governmentIdStatuses.some(
-                (record: { status?: string | null }) => record.status === "PENDING",
-            );
-            const rejectedGovernmentIdRecord = governmentIdStatuses.find(
-                (record: { status?: string | null }) => record.status === "REJECTED",
-            );
-
-            if (hasPendingGovernmentIdReview) {
-                requirements.nextStep = "WAIT_FOR_VERIFICATION";
-            } else {
-                requirements.nextStep = "GOVERNMENT_ID";
-                if (rejectedGovernmentIdRecord?.verificationType) {
-                    requirements.details = `${rejectedGovernmentIdRecord.verificationType} verification was declined`;
-                }
-            }
-        } else if (!profile.isDocumentVerified) {
-            this.applyDocumentStepRequirement(requirements, profile.documentVerificationStatus, "IDENTITY_DOCUMENT", "Document verification was declined");
-        } else if (!profile.isAddressVerified) {
-            this.applyDocumentStepRequirement(requirements, profile.addressVerificationStatus, "ADDRESS_VERIFICATION", "Address verification was declined");
-        } else if (!profile.isIncomeVerified) {
-            this.applyDocumentStepRequirement(requirements, profile.incomeVerificationStatus, "INCOME_VERIFICATION", "Income verification was declined");
-        }
-        return requirements;
-    }
-
-    private applyDocumentStepRequirement(
-        requirements: { nextStep: string; details: string | null },
-        status: DocumentVerificationStatus | null,
-        stepName: string,
-        declinedMessage: string,
-    ): void {
-        if (status === DocumentVerificationStatus.PENDING) {
-            requirements.nextStep = "WAIT_FOR_VERIFICATION";
+            requirements.details = businessVerification.reasonMessage ?? "Previous documents were declined";
         } else {
-            requirements.nextStep = stepName;
-            if (status === DocumentVerificationStatus.DECLINED) {
-                requirements.details = declinedMessage;
-            }
+            requirements.nextStep = "BUSINESS_DOCUMENT_UPLOAD";
         }
+        return requirements;
     }
 
     /**
@@ -394,7 +1117,7 @@ export class UserService {
                         order.currency.toLowerCase()
                     );
                 } catch (error) {
-                    this.logger.warn(`Failed to fetch USD rate for ${order.currency}: ${error.message}`);
+                    this.logger.warn(`Failed to fetch USD rate for ${order.currency}: ${this.getErrorMessage(error)}`);
                 }
                 const usdAmount = order.amount * (rate || 0);
 
@@ -641,6 +1364,28 @@ export class UserService {
     async getUserWallets(userId: number, query: GetUserAssetsDto) {
         const startTime = Date.now();
         const { pageNumber, pageSize, sortBy } = query;
+        const createSyntheticAsset = (currency: string) => ({
+            id: `ledger:${userId}:${currency}`,
+            userId,
+            quidaxWalletId: "",
+            assetName: currency,
+            assetCurrency: currency,
+            balance: 0,
+            locked: 0,
+            staked: 0,
+            convertedBalance: 0,
+            referenceCurrency: "ngn",
+            isCrypto: true,
+            defaultNetwork: "",
+            blockchainEnabled: false,
+            depositAddress: "",
+            destinationTag: null,
+            isActive: false,
+            addressSynced: false,
+            networks: [],
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+        });
 
         const resolvedPageNumber =
             !pageNumber || pageNumber <= 1
@@ -675,18 +1420,8 @@ export class UserService {
 
         // OPTIMIZATION: Run all queries in parallel instead of sequential
         const dbStartTime = Date.now();
-        const [assetsResult, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
-            // Query 1: Fetch user assets + count in a transaction
-            this.prisma.$transaction([
-                this.prisma.assetWallet.findMany({
-                    ...dbQuery,
-                    ...(query.paginated === "true" && {
-                        skip: (resolvedPageNumber - 1) * resolvedPageSize,
-                        take: resolvedPageSize,
-                    }),
-                }),
-                this.prisma.assetWallet.count({ where: dbQuery.where }),
-            ]),
+        const [assets, dynamicRates, liveMarketData, ledgerBalances] = await Promise.all([
+            this.prisma.assetWallet.findMany(dbQuery),
             // Query 2: Fetch dynamic rates from RateService (uses LiveCoinWatch)
             this.rateService.getAllRates(),
             // Query 3: Fetch live Quidax rates (from cache or API)
@@ -697,10 +1432,44 @@ export class UserService {
 
         this.logger.log(`[PERF] getUserWallets DB+API queries (parallel) for user ${userId}: ${Date.now() - dbStartTime}ms`);
 
-        const [assets, count] = assetsResult;
+        const assetCurrencies = new Set(
+            assets.map((asset) => asset.assetCurrency.toUpperCase())
+        );
+
+        const syntheticAssets = Array.from(ledgerBalances.entries())
+            .filter(([currency, balanceInfo]) => {
+                const normalizedCurrency = currency.toUpperCase();
+                if (assetCurrencies.has(normalizedCurrency)) {
+                    return false;
+                }
+
+                const available = Number(balanceInfo.available);
+                const held = Number(balanceInfo.held);
+                const hasLedgerBalance = (!Number.isNaN(available) && available > 0)
+                    || (!Number.isNaN(held) && held > 0);
+
+                if (!hasLedgerBalance) {
+                    return false;
+                }
+
+                return true;
+            })
+            .map(([currency]) => {
+                const normalizedCurrency = currency.toUpperCase();
+
+                return createSyntheticAsset(normalizedCurrency);
+            });
+
+        const mergedAssets = [...assets, ...syntheticAssets];
+        const paginatedAssets = query.paginated === "true"
+            ? mergedAssets.slice(
+                (resolvedPageNumber - 1) * resolvedPageSize,
+                resolvedPageNumber * resolvedPageSize,
+            )
+            : mergedAssets;
 
         // Fetch LiveCoinWatch market data for percentage change fallback
-        const uniqueAssets = [...new Set(assets.map(a => a.assetCurrency))];
+        const uniqueAssets = [...new Set(paginatedAssets.map(a => a.assetCurrency))];
         const lcwStartTime = Date.now();
         const lcwData = await this.liveCoinWatchService.getBatchMarketData(uniqueAssets);
         this.logger.log(`[PERF] LiveCoinWatch batch fetch for ${uniqueAssets.length} assets: ${Date.now() - lcwStartTime}ms`);
@@ -717,11 +1486,11 @@ export class UserService {
                 meta: buildPaginationMeta(
                     resolvedPageNumber,
                     resolvedPageSize,
-                    count,
-                    assets.length
+                    mergedAssets.length,
+                    paginatedAssets.length
                 ),
             }),
-            records: assets.map((asset) => {
+            records: paginatedAssets.map((asset) => {
                 const assetCurrency = asset.assetCurrency.toLowerCase();
                 const assetCurrencyUpper = asset.assetCurrency.toUpperCase();
 
@@ -967,20 +1736,22 @@ export class UserService {
         deviceName?: string,
         platform?: string
     ): Promise<{ message: string }> {
+        const safeUserId = this.getValidatedUserId(user.id);
+
         if (token) {
             // Upsert into DeviceToken table (best-effort).
             // If this fails (e.g. migration drift), we still keep legacy token flow working.
             try {
                 await this.prisma.deviceToken.upsert({
                     where: {
-                        userId_token: { userId: user.id, token },
+                        userId_token: { userId: safeUserId, token },
                     },
                     update: {
                         deviceName: deviceName ?? undefined,
                         platform: platform ?? undefined,
                     },
                     create: {
-                        userId: user.id,
+                        userId: safeUserId,
                         token,
                         deviceName: deviceName ?? null,
                         platform: platform ?? "web",
@@ -988,35 +1759,42 @@ export class UserService {
                 });
             } catch (error) {
                 this.logger.warn(
-                    `DeviceToken upsert failed for user ${user.id}, falling back to legacy notificationToken: ${error?.message || error}`
+                    `DeviceToken upsert failed for user ${safeUserId}, falling back to legacy notificationToken: ${this.getErrorMessage(error)}`
                 );
             }
 
             // Also keep legacy field in sync for backward compatibility
             await this.prisma.user.update({
-                where: { id: user.id },
+                where: { id: safeUserId },
                 data: { notificationToken: token },
             });
         } else {
             // Disable: remove all device tokens for this user (best-effort)
             try {
-                await this.prisma.deviceToken.deleteMany({
-                    where: { userId: user.id },
+                const existingDeviceTokens = await this.prisma.deviceToken.findMany({
+                    where: { userId: safeUserId },
+                    select: { id: true },
                 });
+
+                for (const deviceToken of existingDeviceTokens) {
+                    await this.prisma.deviceToken.delete({
+                        where: { id: deviceToken.id },
+                    });
+                }
             } catch (error) {
                 this.logger.warn(
-                    `DeviceToken cleanup failed for user ${user.id}, continuing with legacy notificationToken cleanup: ${error?.message || error}`
+                    `DeviceToken cleanup failed for user ${safeUserId}, continuing with legacy notificationToken cleanup: ${this.getErrorMessage(error)}`
                 );
             }
 
             await this.prisma.user.update({
-                where: { id: user.id },
+                where: { id: safeUserId },
                 data: { notificationToken: null },
             });
         }
 
         // Invalidate profile cache
-        await this.redisCacheService.del(this.getProfileCacheKey(user.id));
+        await this.redisCacheService.del(this.getProfileCacheKey(safeUserId));
 
         return {
             message: token

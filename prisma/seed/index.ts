@@ -1,4 +1,4 @@
-import { PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
+import { DocumentVerificationStatus, PrismaClient, UserType, TransactionFeeCategory } from "@prisma/client";
 import logger from "moment-logger"; // Assuming this is your custom logger
 import * as bcrypt from "bcryptjs";
 import { customAlphabet } from "nanoid"; // For generating verification codes
@@ -232,6 +232,41 @@ async function main() {
                 isVerified: false,
             },
         });
+
+        const localSuperAdminPassword = "TestAdmin123!";
+        const hashedLocalSuperAdminPassword = await bcrypt.hash(
+            localSuperAdminPassword,
+            SALT_ROUNDS
+        );
+
+        await prisma.user.upsert({
+            where: { email: "superadmin.test@flipxer.local" },
+            update: {
+                password: hashedLocalSuperAdminPassword,
+                phone: "09010000001",
+                userType: UserType.SUPER_ADMIN,
+                roleId: adminRole.id,
+                firstName: "Super",
+                lastName: "Admin",
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+            },
+            create: {
+                email: "superadmin.test@flipxer.local",
+                phone: "09010000001",
+                userType: UserType.SUPER_ADMIN,
+                identifier: "LocalSuperAdmin01",
+                password: hashedLocalSuperAdminPassword,
+                roleId: adminRole.id,
+                firstName: "Super",
+                lastName: "Admin",
+                recoveryEmail: "superadmin.test.recovery@flipxer.local",
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isPasswordCreated: true,
+            },
+        });
     } else {
         logger.error("Super-admin role not found");
     }
@@ -252,13 +287,12 @@ async function main() {
                 update: {
                     // Force update password and all verification flags
                     password: hashedTestPassword,
+                    bvn: "77777777777",
                     isEmailVerified: true,
                     isPhoneVerified: true,
                     isPasswordCreated: true,
-                    isBvnVerified: true,
-                    isNinVerified: true,
                     isDocumentVerified: true,
-                    isAddressVerified: true,
+                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
                     // NOTE: Do NOT reset isTwoFactorEnabled here - preserve user's 2FA settings
                     tier: 3,
                 },
@@ -272,7 +306,7 @@ async function main() {
                     firstName: "Test",
                     lastName: "User",
                     dateOfBirth: new Date("1990-01-15"),
-                    bvn: "22222222222",
+                    bvn: "77777777777",
                     bvnRegisteredPhone: "09099999999",
                     nin: "12345678901",
                     ninRegisteredPhone: "09099999999",
@@ -280,10 +314,8 @@ async function main() {
                     isEmailVerified: true,
                     isPhoneVerified: true,
                     isPasswordCreated: true,
-                    isBvnVerified: true,
-                    isNinVerified: true,
                     isDocumentVerified: true,
-                    isAddressVerified: true,
+                    documentVerificationStatus: DocumentVerificationStatus.VERIFIED,
                     isTwoFactorEnabled: false,
                     tier: 3,
                     accountLimit: {

@@ -18,6 +18,7 @@ import { AdminUserService } from "../admin";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { AuditLogService } from "@/modules/api/audit-log";
+import { UserService } from "..";
 
 function makePrisma() {
     const tx = {
@@ -57,9 +58,20 @@ function makePrisma() {
 describe("AdminUserService", () => {
     let service: AdminUserService;
     let prisma: ReturnType<typeof makePrisma>;
+    let userService: {
+        ensureCurrentIndividualKycStageAttempts: jest.Mock;
+        buildKycReadModel: jest.Mock;
+    };
 
     beforeEach(async () => {
         prisma = makePrisma();
+        userService = {
+            ensureCurrentIndividualKycStageAttempts: jest.fn().mockResolvedValue(false),
+            buildKycReadModel: jest.fn().mockReturnValue({
+                verificationRequirements: { nextStep: "COMPLETE", details: null },
+                kycJourney: null,
+            }),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
@@ -67,6 +79,7 @@ describe("AdminUserService", () => {
                 { provide: PrismaService, useValue: prisma },
                 { provide: EmailService, useValue: { sendMail: jest.fn() } },
                 { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+                { provide: UserService, useValue: userService },
             ],
         }).compile();
 
@@ -97,13 +110,49 @@ describe("AdminUserService", () => {
     });
 
     it("should return user info with withdrawal limit", async () => {
-        prisma.user.findUnique.mockResolvedValue({ id: 9, tier: 1, firstName: "Test", lastName: "User", flaggedRecord: null });
+        prisma.user.findUnique.mockResolvedValue({
+            id: 9,
+            tier: 1,
+            userType: "INDIVIDUAL",
+            firstName: "Test",
+            lastName: "User",
+            identifier: "legacy-id",
+            photo: "https://example.com/legacy.png",
+            accountLimit: null,
+            isEmailVerified: true,
+            isPhoneVerified: false,
+            isDocumentVerified: false,
+            isPasswordCreated: true,
+            documentVerificationStatus: "PENDING",
+            businessDocumentsUploaded: false,
+            businessDocumentVerificationStatus: null,
+            businessRecordCompleted: false,
+            flaggedRecord: null,
+            kycStageAttempts: [],
+        });
+        userService.buildKycReadModel.mockReturnValue({
+            verificationRequirements: { nextStep: "IDENTITY_DOCUMENT", details: null },
+            kycJourney: { overallStatus: "IN_PROGRESS" },
+        });
 
         const result = await service.getUserInfo(9);
 
         expect(result.message).toContain("personal info");
         expect(result.data.id).toBe(9);
         expect(result.data.withdrawalLimit).toBeDefined();
+        expect(result.data.emailVerified).toBe(true);
+        expect(result.data.phoneVerified).toBe(false);
+        expect(result.data.kycJourney).toEqual({ overallStatus: "IN_PROGRESS" });
+        expect(result.data).not.toHaveProperty("verificationRequirements");
+        expect(result.data).not.toHaveProperty("identifier");
+        expect(result.data).not.toHaveProperty("photo");
+        expect(result.data).not.toHaveProperty("accountLimit");
+        expect(result.data).not.toHaveProperty("isEmailVerified");
+        expect(result.data).not.toHaveProperty("isPhoneVerified");
+        expect(result.data).not.toHaveProperty("isDocumentVerified");
+        expect(result.data).not.toHaveProperty("isPasswordCreated");
+        expect(result.data).not.toHaveProperty("documentVerificationStatus");
+        expect(result.data).not.toHaveProperty("businessDocumentsUploaded");
     });
 
     it("should return not-flagged response when unflagging a clean account", async () => {

@@ -2,9 +2,11 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsString, IsOptional, IsNumber, IsIn, IsNotEmpty } from "class-validator";
 import { Type } from "class-transformer";
 
-export const adminKycVerificationLookupTypes = ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"] as const;
+export const adminKycProviderLookupTypes = ["BVN", "NIN", "DOCUMENT", "ADDRESS", "INCOME", "BUSINESS_DOCUMENT"] as const;
+export const adminKycLookupProviders = ["DOJAH", "OCR"] as const;
 
-export type AdminKycVerificationLookupType = typeof adminKycVerificationLookupTypes[number];
+export type AdminKycProviderLookupType = typeof adminKycProviderLookupTypes[number];
+export type AdminKycLookupProvider = typeof adminKycLookupProviders[number];
 
 export class GetKycQueueDto {
     @ApiPropertyOptional({ description: "Page number", default: 1 })
@@ -93,6 +95,51 @@ export class KycDecisionDto {
     // newTier removed — tier is always derived from verification flags via syncTierAndCache
 }
 
+export class AdminKycAttemptDecisionDto {
+    @ApiProperty({
+        description: "Decision action for the targeted KYC attempt",
+        enum: ["APPROVE", "REJECT", "ESCALATE"],
+    })
+    @IsString()
+    @IsIn(["APPROVE", "REJECT", "ESCALATE"])
+    action: "APPROVE" | "REJECT" | "ESCALATE";
+
+    @ApiProperty({ description: "Expected attempt version for optimistic locking" })
+    @Type(() => Number)
+    @IsNumber()
+    expectedVersion: number;
+
+    @ApiPropertyOptional({ description: "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt." })
+    @IsOptional()
+    @IsString()
+    verificationType?: string;
+
+    @ApiPropertyOptional({ description: "Review note or rejection reason" })
+    @IsOptional()
+    @IsString()
+    note?: string;
+}
+
+export class RunKycAttemptRecheckDto {
+    @ApiProperty({
+        description: "Provider to re-run for the targeted KYC attempt",
+        enum: adminKycLookupProviders,
+    })
+    @IsString()
+    @IsIn(adminKycLookupProviders)
+    provider: AdminKycLookupProvider;
+
+    @ApiPropertyOptional({ description: "Optional note captured with the recheck request" })
+    @IsOptional()
+    @IsString()
+    note?: string;
+
+    @ApiPropertyOptional({ description: "Verification type for the targeted attempt. Required when the attemptId refers to a staged attempt." })
+    @IsOptional()
+    @IsString()
+    verificationType?: string;
+}
+
 export class UpdateUserTierDto {
     @ApiProperty({ description: "New tier level" })
     @IsNumber()
@@ -107,23 +154,23 @@ export class UpdateUserTierDto {
 export class UpdateUserVerificationDto {
     @ApiPropertyOptional({ description: "BVN verification status" })
     @IsOptional()
-    isBvnVerified?: boolean;
+    bvnVerified?: boolean;
 
     @ApiPropertyOptional({ description: "NIN verification status" })
     @IsOptional()
-    isNinVerified?: boolean;
+    ninVerified?: boolean;
 
     @ApiPropertyOptional({ description: "Document verification status" })
     @IsOptional()
-    isDocumentVerified?: boolean;
+    documentVerified?: boolean;
 
     @ApiPropertyOptional({ description: "Address verification status" })
     @IsOptional()
-    isAddressVerified?: boolean;
+    addressVerified?: boolean;
 
     @ApiPropertyOptional({ description: "Income verification status" })
     @IsOptional()
-    isIncomeVerified?: boolean;
+    incomeVerified?: boolean;
 
     @ApiPropertyOptional({ description: "Reason for manual update" })
     @IsOptional()
@@ -199,7 +246,7 @@ export class RejectDocumentDto {
     version?: number;
 }
 
-export class RunKycVerificationLookupDto {
+export class RunKycProviderLookupDto {
     @ApiProperty({ description: "User ID" })
     @IsNumber()
     @Type(() => Number)
@@ -207,9 +254,9 @@ export class RunKycVerificationLookupDto {
 
     @ApiProperty({
         description: "Verification artifact to recheck with the provider",
-        enum: adminKycVerificationLookupTypes,
+        enum: adminKycProviderLookupTypes,
     })
     @IsString()
-    @IsIn(adminKycVerificationLookupTypes)
-    verificationType: AdminKycVerificationLookupType;
+    @IsIn(adminKycProviderLookupTypes)
+    verificationType: AdminKycProviderLookupType;
 }

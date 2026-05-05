@@ -113,6 +113,7 @@ export interface ParsedDocumentData {
     documentType: string;
     country: string;
     countryCode: string;
+    rawText?: string;
     firstName?: string;
     lastName?: string;
     givenNames?: string;

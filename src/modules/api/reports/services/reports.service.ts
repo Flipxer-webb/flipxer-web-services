@@ -9,7 +9,8 @@ import {
     RevenueReportRow,
     TaxReportRow,
 } from "../types";
-import { OrderCategory, OrderStreamlinedStatus, Prisma } from "@prisma/client";
+import { KycStage, OrderCategory, OrderStreamlinedStatus, Prisma } from "@prisma/client";
+import { buildIndividualVerificationSnapshot } from "@/modules/api/auth/utils/individual-kyc-stage-state.util";
 
 @Injectable()
 export class ReportsService {
@@ -125,29 +126,75 @@ export class ReportsService {
 
         const users = await this.prisma.user.findMany({
             where,
+            select: {
+                id: true,
+                identifier: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                userType: true,
+                tier: true,
+                country: true,
+                status: true,
+                isEmailVerified: true,
+                isPhoneVerified: true,
+                isDocumentVerified: true,
+                createdAt: true,
+                lastLogin: true,
+                loginCount: true,
+                bvn: true,
+                nin: true,
+                kycStageAttempts: {
+                    where: {
+                        journeyType: "INDIVIDUAL",
+                        stage: KycStage.GOVERNMENT_ID,
+                        isCurrent: true,
+                    },
+                    orderBy: [{ updatedAt: Prisma.SortOrder.desc }, { id: Prisma.SortOrder.desc }],
+                    select: {
+                        stage: true,
+                        method: true,
+                        status: true,
+                        isCurrent: true,
+                    },
+                },
+            },
             orderBy: { createdAt: "desc" },
             take: 10000,
         });
 
-        return users.map((user) => ({
-            id: user.id,
-            identifier: user.identifier,
-            email: user.email,
-            firstName: user.firstName || "",
-            lastName: user.lastName || "",
-            phone: user.phone || "",
-            userType: user.userType,
-            tier: user.tier,
-            country: user.country,
-            status: user.status,
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            isBvnVerified: user.isBvnVerified,
-            isDocumentVerified: user.isDocumentVerified,
-            createdAt: user.createdAt.toISOString(),
-            lastLogin: user.lastLogin?.toISOString() || "",
-            loginCount: user.loginCount,
-        }));
+        return users.map((user) => {
+            const verificationSnapshot = buildIndividualVerificationSnapshot({
+                bvn: user.bvn,
+                nin: user.nin,
+                kycStageAttempts: user.kycStageAttempts ?? [],
+            });
+
+            return {
+                id: user.id,
+                identifier: user.identifier,
+                email: user.email,
+                firstName: user.firstName || "",
+                lastName: user.lastName || "",
+                phone: user.phone || "",
+                userType: user.userType,
+                tier: user.tier,
+                country: user.country,
+                status: user.status,
+                emailVerified: user.isEmailVerified,
+                phoneVerified: user.isPhoneVerified,
+                governmentIdVerified:
+                    verificationSnapshot.bvnVerified
+                    || verificationSnapshot.ninVerified
+                    || Boolean(user.bvn)
+                    || Boolean(user.nin),
+                documentVerified: user.isDocumentVerified,
+                createdAt: user.createdAt.toISOString(),
+                lastLogin: user.lastLogin?.toISOString() || "",
+                loginCount: user.loginCount,
+            };
+        });
     }
 
     /**

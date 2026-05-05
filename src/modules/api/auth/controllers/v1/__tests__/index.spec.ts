@@ -1,34 +1,40 @@
 import { DocumentType } from "@prisma/client";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
 
 jest.mock("@/modules/api/auth/services", () => ({
-    AuthService: class AuthService {},
+    AuthService: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/auth/services/tier-verification.service", () => ({
-    TierVerificationService: class TierVerificationService {},
+    TierVerificationService: jest.fn(),
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/auth/services/individual-kyc-stage.service", () => ({
+    IndividualKycStageService: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/auth/guard", () => ({
-    AuthGuard: class AuthGuard {},
-    CountryBlockGuard: class CountryBlockGuard {},
-    EnabledAccountGuard: class EnabledAccountGuard {},
-    SocketAuthGuard: class SocketAuthGuard {},
+    AuthGuard: jest.fn(),
+    CountryBlockGuard: jest.fn(),
+    EnabledAccountGuard: jest.fn(),
+    SocketAuthGuard: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/user", () => ({
     User: () => () => undefined,
     ClientData: () => () => undefined,
-    UserModule: class UserModule {},
+    UserModule: jest.fn(),
     AccountDeletedException: class AccountDeletedException extends Error {},
     UserNotFoundException: class UserNotFoundException extends Error {},
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
-    RoleGuard: class RoleGuard {},
+    RoleGuard: jest.fn(),
     __esModule: true,
 }));
 
@@ -39,13 +45,15 @@ jest.mock("@/modules/api/authorize/decorator", () => ({
 }));
 
 jest.mock("@/modules/core/rate-limit/guards/rate-limiter.guard", () => ({
-    RateLimiterGuard: class RateLimiterGuard {},
+    RateLimiterGuard: jest.fn(),
     StrictRateLimit: () => () => undefined,
     RateLimit: () => () => undefined,
     __esModule: true,
 }));
 
 import { RequiredFilesMissing } from "../../../errors";
+import { AuthGuard } from "@/modules/api/auth/guard";
+import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { AuthController } from "../index";
 
 describe("AuthController", () => {
@@ -53,6 +61,7 @@ describe("AuthController", () => {
 
     let authService: Record<string, jest.Mock>;
     let tierVerificationService: Record<string, jest.Mock>;
+    let individualKycStageService: Record<string, jest.Mock>;
 
     const user = { id: 77 } as any;
 
@@ -90,7 +99,22 @@ describe("AuthController", () => {
             getVerificationStatus: jest.fn(),
         };
 
-        controller = new AuthController(authService as never, tierVerificationService as never);
+        individualKycStageService = {
+            submitGovernmentIdBvn: jest.fn(),
+            submitGovernmentIdNin: jest.fn(),
+            previewIdentityDocument: jest.fn(),
+            submitIdentityDocument: jest.fn(),
+            previewAddressDocument: jest.fn(),
+            submitAddressDocument: jest.fn(),
+            previewIncomeDocument: jest.fn(),
+            submitIncomeDocument: jest.fn(),
+        };
+
+        controller = new AuthController(
+            authService as never,
+            tierVerificationService as never,
+            individualKycStageService as never,
+        );
         jest.spyOn((controller as any).logger, "debug").mockImplementation(() => undefined);
         jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);
     });
@@ -186,6 +210,88 @@ describe("AuthController", () => {
         ).resolves.toEqual({ data: { name: "John" } });
     });
 
+    it("delegates staged preview and submit routes", async () => {
+        individualKycStageService.submitGovernmentIdBvn.mockResolvedValue({ ok: "government-bvn-submit" });
+        individualKycStageService.submitGovernmentIdNin.mockResolvedValue({ ok: "government-nin-submit" });
+        individualKycStageService.previewIdentityDocument.mockResolvedValue({ ok: "identity-preview" });
+        individualKycStageService.submitIdentityDocument.mockResolvedValue({ ok: "identity-submit" });
+        individualKycStageService.previewAddressDocument.mockResolvedValue({ ok: "address-preview" });
+        individualKycStageService.submitAddressDocument.mockResolvedValue({ ok: "address-submit" });
+        individualKycStageService.previewIncomeDocument.mockResolvedValue({ ok: "income-preview" });
+        individualKycStageService.submitIncomeDocument.mockResolvedValue({ ok: "income-submit" });
+
+        await expect(controller.previewIdentityDocumentStage(user, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(controller.submitIdentityDocumentStage(user, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(controller.previewAddressStage(user, {} as never, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(controller.submitAddressStage(user, {} as never, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(controller.previewIncomeStage(user, {} as never, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(controller.submitIncomeStage(user, {} as never, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+
+        await expect(
+            controller.submitGovernmentIdBvnStage(user, {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                dateOfBirth: "1815-12-10",
+                bvn: "12345678901",
+            } as never),
+        ).resolves.toEqual({ ok: "government-bvn-submit" });
+        await expect(
+            controller.submitGovernmentIdNinStage(user, {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                dateOfBirth: "1815-12-10",
+                nin: "12345678901",
+            } as never),
+        ).resolves.toEqual({ ok: "government-nin-submit" });
+        await expect(
+            controller.previewIdentityDocumentStage(user, { imageFrontBase64: "abc" } as never),
+        ).resolves.toEqual({ ok: "identity-preview" });
+        await expect(
+            controller.submitIdentityDocumentStage(user, { imageFrontBase64: "abc" } as never),
+        ).resolves.toEqual({ ok: "identity-submit" });
+        await expect(
+            controller.previewAddressStage(user, { method: "UTILITY_BILL" } as never, { originalname: "address.pdf" } as never),
+        ).resolves.toEqual({ ok: "address-preview" });
+        await expect(
+            controller.submitAddressStage(user, { method: "UTILITY_BILL" } as never, { originalname: "address.pdf" } as never),
+        ).resolves.toEqual({ ok: "address-submit" });
+        await expect(
+            controller.previewIncomeStage(user, { method: "PAYSLIP" } as never, { originalname: "income.pdf" } as never),
+        ).resolves.toEqual({ ok: "income-preview" });
+        await expect(
+            controller.submitIncomeStage(user, { method: "PAYSLIP" } as never, { originalname: "income.pdf" } as never),
+        ).resolves.toEqual({ ok: "income-submit" });
+
+        expect(individualKycStageService.submitGovernmentIdBvn).toHaveBeenCalledWith(user, {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            dateOfBirth: "1815-12-10",
+            bvn: "12345678901",
+        });
+        expect(individualKycStageService.submitGovernmentIdNin).toHaveBeenCalledWith(user, {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            dateOfBirth: "1815-12-10",
+            nin: "12345678901",
+        });
+    });
+
+    it("authenticates staged address and income file uploads before rate limiting", () => {
+        const guardedMethods = [
+            "previewAddressStage",
+            "submitAddressStage",
+            "previewIncomeStage",
+            "submitIncomeStage",
+        ] as const;
+
+        for (const methodName of guardedMethods) {
+            expect(Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype[methodName])).toEqual([
+                AuthGuard,
+                RateLimiterGuard,
+            ]);
+        }
+    });
+
     it("returns retired response for Dojah widget route and still delegates business routes", async () => {
         authService.submitDojahWidgetVerification.mockRejectedValue(
             new Error("Dojah widget verification has been retired. Use the document upload flow instead."),
@@ -194,7 +300,7 @@ describe("AuthController", () => {
         authService.submitBusinessDocumentsFromUrls.mockResolvedValue({ ok: "urls" });
 
         await expect(
-            controller.submitDojahVerification(
+            (controller as any).submitDojahVerification(
                 user,
                 { verificationId: "v1", referenceId: "r1", idData: { firstName: "A" } } as never,
             ),

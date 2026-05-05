@@ -41,7 +41,6 @@ model User {
   bvn                                String?                           @unique
   bvnRegisteredPhone                 String?
   country                            Country                           @default(NIGERIA)
-  isBvnVerified                      Boolean                           @default(false)
   isDocumentVerified                 Boolean                           @default(false)
   isEmailVerified                    Boolean                           @default(false)
   isPasswordCreated                  Boolean                           @default(false)
@@ -55,9 +54,6 @@ model User {
   flaggedId                          Int?                              @unique
   nin                                String?                           @unique
   ninRegisteredPhone                 String?
-  isNinVerified                      Boolean                           @default(false)
-  isAddressVerified                  Boolean                           @default(false)
-  isIncomeVerified                   Boolean                           @default(false)
   isTwoFactorEnabled                 Boolean                           @default(false)
   tier                               Int                               @default(0)
   twoFactorSecret                    String?
@@ -66,9 +62,7 @@ model User {
   requiredMethodCount                Int                               @default(1)
   // Tier 2/3 verification fields
   documentVerificationStatus         DocumentVerificationStatus?       // Identity document verification status
-  addressVerificationStatus          DocumentVerificationStatus?
   addressDocumentUrl                 String?
-  incomeVerificationStatus           DocumentVerificationStatus?
   incomeDocumentUrl                  String?
   tradingPassword                    String?
   // Account lockout for brute force protection
@@ -108,7 +102,8 @@ model User {
   orphanedHoldReviews                OrphanedHoldReview[]              @relation("OrphanedHoldResolver")
   depositReviewQueues                DepositReviewQueue[]
   depositReviewsReviewed             DepositReviewQueue[]              @relation("DepositReviewer")
-  kycVerifications                   KycVerification[]
+  kycStageAttempts                   KycStageAttempt[]
+  kycAttemptEvents                   KycAttemptEvent[]
   failedRollbacks                    FailedRollback[]
   backupCodes                        TwoFactorBackupCode[]
   // Identity deduplication
@@ -909,31 +904,88 @@ model AuditLog {
   @@map("AuditLogs")
 }
 
-model KycVerification {
-  id               Int                 @id @default(autoincrement())
-  userId           Int
-  verificationType KycVerificationType
-  status           KycStatus           @default(PENDING)
-  reviewerId       Int?
-  reviewNote       String?
-  documentUrl      String?
-  providerRef      String?
-  providerRawResponse Json?
-  submittedAt      DateTime            @default(now())
-  reviewedAt       DateTime?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  version          Int                 @default(1)
-  isActive         Boolean             @default(true)
-  escalatedAt      DateTime?
-  escalatedById    Int?
-  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+model KycStageAttempt {
+  id                Int               @id @default(autoincrement())
+  userId            Int
+  journeyType       KycJourneyType    @default(INDIVIDUAL)
+  stage             KycStage
+  method            KycMethod
+  attemptNo         Int
+  isCurrent         Boolean           @default(true)
+  status            KycAttemptStatus
+  providerName      KycProviderName   @default(NONE)
+  providerStatus    KycProviderStatus @default(NOT_REQUESTED)
+  decisionMode      KycDecisionMode   @default(MANUAL)
+  providerRef       String?
+  reasonCode        String?
+  reasonMessage     String?
+  reasonDetails     Json?
+  extractedFields   Json?
+  comparisonSummary Json?
+  evidenceSummary   Json?
+  reviewerId        Int?
+  reviewNote        String?
+  submittedAt       DateTime          @default(now())
+  reviewedAt        DateTime?
+  escalatedAt       DateTime?
+  version           Int               @default(1)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evidenceAssets    KycEvidenceAsset[]
+  events            KycAttemptEvent[]
 
-  @@index([userId])
+  @@unique([userId, stage, attemptNo])
+  @@index([userId, stage, isCurrent])
+  @@index([userId, journeyType, stage, isCurrent])
+  @@index([stage, isCurrent])
   @@index([status])
-  @@index([verificationType])
-  @@index([userId, verificationType, isActive])
-  @@map("KycVerifications")
+  @@map("KycStageAttempts")
+}
+
+model KycEvidenceAsset {
+  id             Int             @id @default(autoincrement())
+  attemptId      Int
+  kind           KycEvidenceKind
+  storageUrl     String
+  storageFieldId String?
+  originalName   String?
+  mimeType       String
+  checksumSha256 String?
+  pageCount      Int?
+  side           KycEvidenceSide?
+  createdAt      DateTime        @default(now())
+  attempt        KycStageAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@index([kind])
+  @@map("KycEvidenceAssets")
+}
+
+model KycAttemptEvent {
+  id                   Int                 @id @default(autoincrement())
+  attemptId            Int
+  userId               Int
+  journeyType          KycJourneyType
+  stage                KycStage
+  eventType            KycAttemptEventType
+  actorType            KycActorType?
+  actorId              Int?
+  providerName         KycProviderName?
+  providerStatus       KycProviderStatus?
+  providerRef          String?
+  note                 String?
+  payload              Json?
+  createdAt            DateTime            @default(now())
+
+  attempt              KycStageAttempt     @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, createdAt])
+  @@index([userId, createdAt])
+  @@index([journeyType, stage, createdAt])
+  @@index([eventType, createdAt])
+  @@map("KycAttemptEvents")
 }
 
 model LiquidityAlert {
@@ -1203,20 +1255,103 @@ enum UserNotificationTarget {
   SINGLE
 }
 
-enum KycVerificationType {
-  BVN
-  NIN
-  DOCUMENT
-  ADDRESS
-  INCOME
-  BUSINESS_DOCUMENT
-}
-
 enum KycStatus {
   PENDING
   APPROVED
   REJECTED
   ESCALATED
+}
+
+enum KycJourneyType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum KycStage {
+  GOVERNMENT_ID
+  IDENTITY_DOCUMENT
+  ADDRESS
+  INCOME
+  BUSINESS_DOCUMENT
+}
+
+enum KycMethod {
+  BVN
+  NIN
+  INTERNATIONAL_PASSPORT
+  DRIVER_LICENSE
+  NIN_SLIP
+  UTILITY_BILL
+  BANK_STATEMENT
+  GOVERNMENT_LETTER
+  PAYSLIP
+  EMPLOYMENT_LETTER
+  CONTRACT
+  BANK_STATEMENT_INCOME
+  TAX_RETURN
+  BUSINESS_REGISTRATION
+  OTHER
+}
+
+enum KycAttemptStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  ESCALATED
+  EXPIRED
+}
+
+enum KycAttemptEventType {
+  SUBMITTED
+  PROVIDER_CHECK
+  ADMIN_RECHECK
+  APPROVED
+  REJECTED
+  ESCALATED
+  RESUBMITTED
+  IMPORTED_LEGACY_HISTORY
+}
+
+enum KycActorType {
+  USER
+  ADMIN
+  SYSTEM
+  PROVIDER
+  JOB
+}
+
+enum KycProviderName {
+  DOJAH
+  OCR
+  NONE
+}
+
+enum KycProviderStatus {
+  NOT_REQUESTED
+  RUNNING
+  PASSED
+  FAILED
+  INCONCLUSIVE
+  ERROR
+}
+
+enum KycDecisionMode {
+  AUTO
+  MANUAL
+}
+
+enum KycEvidenceKind {
+  FRONT_IMAGE
+  BACK_IMAGE
+  PDF
+  SUPPORTING_FILE
+}
+
+enum KycEvidenceSide {
+  FRONT
+  BACK
 }
 
 enum LiquidityAlertType {

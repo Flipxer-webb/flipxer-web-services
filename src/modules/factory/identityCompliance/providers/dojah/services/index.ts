@@ -224,7 +224,12 @@ export class DojahService {
             throw new e.DojahException(
                 error.message ??
                 `Failed to initiate ${verificationType} verification. Please try again`,
-                error.status ?? HttpStatus.BAD_REQUEST
+                error.status ?? HttpStatus.BAD_REQUEST,
+                {
+                    responseBody: error.responseBody,
+                    requestMetadata: error.requestMetadata,
+                    providerErrorName: error.name,
+                },
             );
         }
 

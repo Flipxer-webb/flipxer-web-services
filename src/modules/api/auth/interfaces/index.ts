@@ -48,11 +48,11 @@ export interface DocumentVerificationFileInterface {
 }
 
 export interface VerificationStatus {
-    isEmailVerified: boolean;
-    isPhoneVerified: boolean;
-    isPasswordCreated: boolean;
-    isBvnVerified: boolean;
-    isDocumentVerified: boolean;
+    emailVerified: boolean;
+    phoneVerified: boolean;
+    passwordCreated: boolean;
+    governmentIdVerified: boolean;
+    documentVerified: boolean;
     businessRecordCompleted?: boolean;
     businessDocumentVerificationStatus?: string | null;
 }
@@ -73,10 +73,17 @@ export interface SignInUser {
     isEmailVerified: boolean;
     isPhoneVerified: boolean;
     isPasswordCreated: boolean;
-    isBvnVerified: boolean;
+    bvn?: string | null;
+    nin?: string | null;
     isDocumentVerified: boolean;
     businessRecordCompleted: boolean;
     businessDocumentVerificationStatus: DocumentVerificationStatus | null;
+    kycStageAttempts?: Array<{
+        stage: string;
+        method: string | null;
+        status: string;
+        isCurrent: boolean;
+    }>;
 }
 
 export const DocumentMetaMap = {

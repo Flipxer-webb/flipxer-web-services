@@ -1,6 +1,6 @@
 import { HttpStatus } from "@nestjs/common";
 
-import { DojahValidationError } from "@/libs/dojah";
+import { DojahThirdPartyServiceFailureError, DojahValidationError } from "@/libs/dojah";
 
 import { DojahException } from "../../errors";
 import { DojahService } from "../index";
@@ -64,6 +64,34 @@ describe("DojahService", () => {
             const typedError = error as DojahException;
             expect(typedError).toBeInstanceOf(DojahException);
             expect(typedError.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        }
+    });
+
+    it("preserves Dojah library metadata on translated exceptions", async () => {
+        const upstreamError = new DojahThirdPartyServiceFailureError("Service not available");
+        upstreamError.responseBody = { error: "Service not available" };
+        upstreamError.requestMetadata = {
+            method: "POST",
+            url: "/api/v1/document/analysis",
+            baseURL: "https://api.dojah.io",
+        };
+        dojah.analyzeDocument.mockRejectedValue(upstreamError);
+
+        try {
+            await service.analyzeDocument({ imageFrontSide: "base64-image" } as any);
+            fail("Expected analyzeDocument to throw");
+        } catch (error) {
+            const typedError = error as DojahException;
+            expect(typedError).toBeInstanceOf(DojahException);
+            expect(typedError.getStatus()).toBe(HttpStatus.FAILED_DEPENDENCY);
+            expect(typedError.message).toBe("Service not available");
+            expect(typedError.responseBody).toEqual({ error: "Service not available" });
+            expect(typedError.requestMetadata).toEqual({
+                method: "POST",
+                url: "/api/v1/document/analysis",
+                baseURL: "https://api.dojah.io",
+            });
+            expect(typedError.providerErrorName).toBe("DojahThirdPartyServiceFailureError");
         }
     });
 

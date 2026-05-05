@@ -9,7 +9,6 @@ import {
     ParseIntPipe,
     UseGuards,
     Req,
-    BadRequestException,
     UnauthorizedException,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
@@ -22,12 +21,14 @@ import { KycService } from "../services";
 import {
     GetKycQueueDto,
     KycDecisionDto,
+    AdminKycAttemptDecisionDto,
     UpdateUserTierDto,
     UpdateUserVerificationDto,
     GetKycStatsDto,
     ApproveDocumentDto,
     RejectDocumentDto,
-    RunKycVerificationLookupDto,
+    RunKycAttemptRecheckDto,
+    RunKycProviderLookupDto,
 } from "../dtos";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
@@ -41,14 +42,6 @@ export class KycController {
         const adminId = typeof req.user?.id === "number" ? req.user.id : undefined;
         if (!adminId) throw new UnauthorizedException("Invalid admin session");
         return adminId;
-    }
-
-    private requireLegacyDecisionAction(dto: KycDecisionDto): KycDecisionDto & { action: "APPROVE" | "REJECT" | "ESCALATE" } {
-        if (!dto.action) {
-            throw new BadRequestException("Decision action is required for the legacy decision route");
-        }
-
-        return dto as KycDecisionDto & { action: "APPROVE" | "REJECT" | "ESCALATE" };
     }
 
     @ApiOperation({ summary: "Get KYC verification queue" })
@@ -79,9 +72,22 @@ export class KycController {
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.KYC_APPROVE])
     @Post("verification")
-    async runKycVerificationLookup(@Body() dto: RunKycVerificationLookupDto, @Req() req: any) {
+    async runKycProviderLookup(@Body() dto: RunKycProviderLookupDto, @Req() req: any) {
         const adminId = this.getAdminId(req);
-        return await this.kycService.runVerificationLookup(dto, adminId);
+        return await this.kycService.runProviderLookup(dto, adminId);
+    }
+
+    @ApiOperation({ summary: "Run a fresh provider lookup for a specific KYC attempt" })
+    @ApiBearerAuth("access-token")
+    @Permissions([PermissionName.KYC_APPROVE])
+    @Post("attempts/:attemptId/recheck")
+    async runAttemptRecheck(
+        @Param("attemptId", ParseIntPipe) attemptId: number,
+        @Body() dto: RunKycAttemptRecheckDto,
+        @Req() req: any,
+    ) {
+        const adminId = this.getAdminId(req);
+        return await this.kycService.runAttemptVerificationLookup(attemptId, dto, adminId);
     }
 
     @ApiOperation({ summary: "Approve a KYC verification" })
@@ -111,13 +117,17 @@ export class KycController {
         return await this.kycService.processKycDecision({ ...dto, action: "ESCALATE" }, adminId);
     }
 
-    @ApiOperation({ summary: "Process KYC decision (deprecated compatibility route)" })
+    @ApiOperation({ summary: "Process a decision for a specific KYC attempt" })
     @ApiBearerAuth("access-token")
     @Permissions([PermissionName.KYC_APPROVE])
-    @Post("decision")
-    async processLegacyKycDecision(@Body() dto: KycDecisionDto, @Req() req: any) {
+    @Post("attempts/:attemptId/decision")
+    async processAttemptDecision(
+        @Param("attemptId", ParseIntPipe) attemptId: number,
+        @Body() dto: AdminKycAttemptDecisionDto,
+        @Req() req: any,
+    ) {
         const adminId = this.getAdminId(req);
-        return await this.kycService.processKycDecision(this.requireLegacyDecisionAction(dto), adminId);
+        return await this.kycService.processAttemptDecision(attemptId, dto, adminId);
     }
 
     @ApiOperation({ summary: "Update user verification tier" })

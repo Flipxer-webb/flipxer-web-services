@@ -1,8 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
-import { User, UserType } from "@prisma/client";
+import { Prisma, User, UserType } from "@prisma/client";
 import { TIER_WITHDRAWAL_LIMITS, BUSINESS_WITHDRAWAL_LIMITS, TIER_DAILY_LIMITS, BUSINESS_DAILY_LIMITS, TierLevel, OperationLimits } from "@/modules/shared/tier-limits";
+import { buildIndividualVerificationSnapshot } from "../utils/individual-kyc-stage-state.util";
 
 export { TierLevel } from "@/modules/shared/tier-limits";
 
@@ -16,9 +17,17 @@ export interface TierInfo {
 // User with tier fields
 export type UserWithTier = User & {
     tier?: number;
-    isAddressVerified?: boolean;
-    isIncomeVerified?: boolean;
-    isNinVerified?: boolean;
+    emailVerified?: boolean;
+    documentVerified?: boolean;
+    governmentIdVerified?: boolean;
+    addressVerified?: boolean;
+    incomeVerified?: boolean;
+    kycStageAttempts?: Array<{
+        stage: string;
+        method?: string | null;
+        status?: string | null;
+        isCurrent?: boolean;
+    }>;
 };
 
 // Re-export for backward compatibility (use TIER_WITHDRAWAL_LIMITS from shared module for new code)
@@ -37,30 +46,30 @@ const INDIVIDUAL_TIER_CHECKS: Array<{
             // Tier 4 (Premium): All verifications complete including income
             tier: 4,
             check: (user) =>
-                (!!user.isBvnVerified || !!user.isNinVerified) &&
-                !!user.isDocumentVerified &&
-                !!user.isAddressVerified &&
-                !!user.isIncomeVerified,
+                !!user.governmentIdVerified &&
+                !!user.documentVerified &&
+                !!user.addressVerified &&
+                !!user.incomeVerified,
         },
         {
             // Tier 3 (Pro): BVN/NIN + Document + Address verified
             tier: 3,
             check: (user) =>
-                (!!user.isBvnVerified || !!user.isNinVerified) &&
-                !!user.isDocumentVerified &&
-                !!user.isAddressVerified,
+                !!user.governmentIdVerified &&
+                !!user.documentVerified &&
+                !!user.addressVerified,
         },
         {
             // Tier 2 (Intermediate): BVN/NIN + Document verified
             tier: 2,
             check: (user) =>
-                (!!user.isBvnVerified || !!user.isNinVerified) &&
-                !!user.isDocumentVerified,
+                !!user.governmentIdVerified &&
+                !!user.documentVerified,
         },
         {
             // Tier 1 (Standard): BVN or NIN verified
             tier: 1,
-            check: (user) => !!user.isBvnVerified || !!user.isNinVerified,
+            check: (user) => !!user.governmentIdVerified,
         },
     ];
 
@@ -80,12 +89,14 @@ export class TierService {
      * @returns The calculated tier level (0-4 for individuals, 0-1 for business)
      */
     calculateTier(user: Partial<UserWithTier>): TierLevel {
+        const resolvedUser = this.resolveTierVerificationState(user);
+
         // Business accounts have simpler 2-tier structure
-        if (user.userType === UserType.BUSINESS) {
-            return this.calculateBusinessTier(user);
+        if (resolvedUser.userType === UserType.BUSINESS) {
+            return this.calculateBusinessTier(resolvedUser);
         }
 
-        return this.calculateIndividualTier(user);
+        return this.calculateIndividualTier(resolvedUser);
     }
 
     /**
@@ -105,7 +116,7 @@ export class TierService {
     private calculateIndividualTier(user: Partial<UserWithTier>): TierLevel {
         // Safety check for basic verification - only email is required
         // Phone verification is optional and not part of the KYC flow
-        if (!user.isEmailVerified) {
+        if (!user.emailVerified) {
             return 0;
         }
 
@@ -176,19 +187,22 @@ export class TierService {
     async updateUserTier(userId: number): Promise<UserWithTier> {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
+            select: this.buildTierUserSelect(),
         });
 
         if (!user) {
             throw new Error(`User with ID ${userId} not found`);
         }
 
+        const resolvedUser = this.resolveTierVerificationState(user);
+
         // Debug logging to track tier calculation
         this.logger.log(`[Tier Calc] User ${userId} verification status: ` +
-            `email=${user.isEmailVerified}, bvn=${user.isBvnVerified}, nin=${user.isNinVerified}, ` +
-            `doc=${user.isDocumentVerified}, address=${user.isAddressVerified}, income=${user.isIncomeVerified}, ` +
+            `email=${resolvedUser.emailVerified}, governmentId=${resolvedUser.governmentIdVerified}, ` +
+            `doc=${resolvedUser.documentVerified}, address=${resolvedUser.addressVerified}, income=${resolvedUser.incomeVerified}, ` +
             `currentTier=${user.tier ?? 0}`);
 
-        const newTier = this.calculateTier(user);
+        const newTier = this.calculateTier(resolvedUser);
 
         this.logger.log(`[Tier Calc] User ${userId} calculated tier: ${newTier}`);
 
@@ -249,15 +263,27 @@ export class TierService {
                 email: true,
                 userType: true,
                 tier: true,
+                bvn: true,
+                nin: true,
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                isBvnVerified: true,
-                isNinVerified: true,
                 isDocumentVerified: true,
-                isAddressVerified: true,
-                isIncomeVerified: true,
                 businessRecordCompleted: true,
                 businessDocumentsUploaded: true,
+                businessDocumentVerificationStatus: true,
+                kycStageAttempts: {
+                    where: {
+                        isCurrent: true,
+                        journeyType: "INDIVIDUAL",
+                        stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
+                    },
+                    select: {
+                        stage: true,
+                        method: true,
+                        status: true,
+                        isCurrent: true,
+                    },
+                },
             },
         });
 
@@ -351,6 +377,61 @@ export class TierService {
         }
 
         return { canWithdraw: true };
+    }
+
+    private buildTierUserSelect(): Prisma.UserSelect {
+        return {
+            id: true,
+            email: true,
+            userType: true,
+            tier: true,
+            bvn: true,
+            nin: true,
+            isEmailVerified: true,
+            isDocumentVerified: true,
+            businessDocumentVerificationStatus: true,
+            kycStageAttempts: {
+                where: {
+                    isCurrent: true,
+                    journeyType: "INDIVIDUAL",
+                    stage: { in: ["GOVERNMENT_ID", "IDENTITY_DOCUMENT", "ADDRESS", "INCOME"] },
+                },
+                select: {
+                    stage: true,
+                    method: true,
+                    status: true,
+                    isCurrent: true,
+                },
+            },
+        };
+    }
+
+    private resolveTierVerificationState(user: Partial<UserWithTier>): Partial<UserWithTier> {
+        if (user.userType === UserType.BUSINESS) {
+            return user;
+        }
+
+        const verificationSnapshot = buildIndividualVerificationSnapshot({
+            userType: user.userType,
+            kycStageAttempts: user.kycStageAttempts,
+            bvn: user.bvn,
+            nin: user.nin,
+        });
+
+        return {
+            ...user,
+            emailVerified: user.emailVerified ?? user.isEmailVerified ?? false,
+            documentVerified: Boolean(
+                user.documentVerified
+                ?? user.isDocumentVerified
+                ?? false,
+            ) || verificationSnapshot.documentVerified,
+            governmentIdVerified:
+                user.governmentIdVerified
+                ?? (verificationSnapshot.bvnVerified || verificationSnapshot.ninVerified),
+            addressVerified: user.addressVerified ?? verificationSnapshot.addressVerified,
+            incomeVerified: user.incomeVerified ?? verificationSnapshot.incomeVerified,
+        };
     }
 
 }

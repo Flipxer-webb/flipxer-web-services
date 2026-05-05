@@ -1,6 +1,8 @@
 export class DojahError extends Error {
     readonly name: string = "DojahError";
     status: number;
+    responseBody?: unknown;
+    requestMetadata?: Record<string, unknown> | null;
 }
 
 export class DojahGenericError extends DojahError {
@@ -45,7 +47,7 @@ export class DojahRequestTimeoutError extends DojahError {
 
 export class DojahThirdPartyServiceFailureError extends DojahError {
     name = "DojahThirdPartyServiceFailureError";
-    status = 422;
+    status = 424;
 }
 
 export class DojahTooManyRequestError extends DojahError {

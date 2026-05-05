@@ -24,6 +24,7 @@ import { AdminUserService } from "../../services/admin";
 import { GetUserListDto, UnflagUserDto, FlagUserDto, SetLimitOverrideDto, RemoveLimitOverrideDto } from "../../dtos";
 import { GetUserTransactionListDto } from "@/modules/api/transactions/dtos";
 import { User } from "../../decorators";
+import { ApiResponse } from "@/utils/api-response-util";
 
 @UseGuards(AuthGuard, RoleGuard, EnabledAccountGuard, PermissionGuard)
 @UserTypes(ADMIN_USER_TYPES)
@@ -77,7 +78,7 @@ export class AdminUserController {
     @ApiOperation({ summary: "Admin gets user personal info" })
     @ApiBearerAuth("access-token")
     @Get(":userId")
-    async getUserInfo(@Param("userId", ParseIntPipe) userId: number) {
+    async getUserInfo(@Param("userId", ParseIntPipe) userId: number): Promise<ApiResponse> {
         return this.adminService.getUserInfo(userId);
     }
 

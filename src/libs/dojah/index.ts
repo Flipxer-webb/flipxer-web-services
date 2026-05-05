@@ -15,6 +15,35 @@ export class DojahLib {
         },
     });
 
+    private buildRequestMetadata(config?: AxiosRequestConfig): Record<string, unknown> | null {
+        if (!config) {
+            return null;
+        }
+
+        return {
+            method: typeof config.method === "string" ? config.method.toUpperCase() : null,
+            url: config.url ?? null,
+            baseURL: config.baseURL ?? this.instanceOptions.baseURL ?? null,
+            timeout: config.timeout ?? null,
+            hasParams: Boolean(config.params),
+            dataKeys:
+                config.data && typeof config.data === "object" && !Array.isArray(config.data)
+                    ? Object.keys(config.data as Record<string, unknown>)
+                    : null,
+        };
+    }
+
+    private enrichDojahError<T extends e.DojahError>(dojahError: T, error: AxiosError<any>): T {
+        dojahError.responseBody = error.response?.data;
+        dojahError.requestMetadata = this.buildRequestMetadata(error.config);
+
+        if (!dojahError.status && error.response?.status) {
+            dojahError.status = error.response.status;
+        }
+
+        return dojahError;
+    }
+
     private handleDojahError(error: AxiosError<any>) {
         // Handle network errors (no response from server)
         if (!error.response) {
@@ -26,41 +55,44 @@ export class DojahLib {
                 message = 'Network error - Could not reach Dojah API';
             }
 
-            throw new e.DojahNetworkError(message);
+            throw this.enrichDojahError(new e.DojahNetworkError(message), error);
         }
 
         switch (true) {
             case error.response?.status == 401: {
-                throw new e.DojahAuthorizationError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahAuthorizationError(error.response.data.error), error);
             }
             case error.response?.status == 400: {
-                throw new e.DojahValidationError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahValidationError(error.response.data.error), error);
             }
 
             case error.response?.status == 402: {
-                throw new e.DojahLowBalanceError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahLowBalanceError(error.response.data.error), error);
             }
 
             case error.response?.status == 404: {
-                throw new e.DojahNotFoundError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahNotFoundError(error.response.data.error), error);
             }
 
             case error.response?.status == 405: {
-                throw new e.DojahMethodNotFoundError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahMethodNotFoundError(error.response.data.error), error);
             }
 
             case error.response?.status == 408: {
-                throw new e.DojahRequestTimeoutError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahRequestTimeoutError(error.response.data.error), error);
             }
 
             case error.response?.status == 424: {
-                throw new e.DojahThirdPartyServiceFailureError(
-                    error.response.data.error
+                throw this.enrichDojahError(
+                    new e.DojahThirdPartyServiceFailureError(
+                        error.response.data.error
+                    ),
+                    error,
                 );
             }
 
             case error.response?.status == 429: {
-                throw new e.DojahTooManyRequestError(error.response.data.error);
+                throw this.enrichDojahError(new e.DojahTooManyRequestError(error.response.data.error), error);
             }
 
             default: {
@@ -68,7 +100,7 @@ export class DojahLib {
                     error.response?.data?.error || error.response?.statusText
                 );
                 err.status = error.response?.status;
-                throw err;
+                throw this.enrichDojahError(err, error);
             }
         }
     }
@@ -188,6 +220,11 @@ export class DojahLib {
     parseDocumentData(data: t.DocumentAnalysisResponseData): t.ParsedDocumentData {
         const entity = data.entity;
         const textData = entity.text_data || [];
+        const rawText = textData
+            .map((field) => field?.value)
+            .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+            .join("\n");
+        const countryCode = entity.document_type?.document_country_code || "";
 
         const getFieldValue = (key: string): string | undefined => {
             const field = textData.find((f) => f.field_key === key);
@@ -198,8 +235,9 @@ export class DojahLib {
             isValid: entity.status.overall_status === 1,
             reason: entity.status.reason,
             documentType: entity.document_type?.document_name || "",
-            country: entity.document_type?.document_country_name || "",
-            countryCode: entity.document_type?.document_country_code || "",
+            country: entity.document_type?.document_country_name || (countryCode.toUpperCase() === "NG" ? "Nigeria" : ""),
+            countryCode,
+            rawText,
             firstName: getFieldValue("first_name"),
             lastName: getFieldValue("last_name"),
             givenNames: getFieldValue("given_names"),
@@ -215,7 +253,7 @@ export class DojahLib {
             hasFrontSide: !!entity.document_images?.document_front_side,
             hasBackSide: !!entity.document_images?.document_back_side,
             // OCR text extraction is independent of image segmentation/portrait detection
-            hasExtractedText: !!(getFieldValue("first_name") || getFieldValue("last_name") || getFieldValue("document_number") || getFieldValue("dob")),
+            hasExtractedText: !!rawText,
         };
     }
 

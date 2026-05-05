@@ -59,6 +59,7 @@ import { PrismaService } from "@/modules/core/prisma/services";
 import { EmailService } from "@/modules/core/email/services";
 import { UploadFactory } from "@/modules/core/upload/services";
 import { IdentityComplianceInjectionToken } from "@/modules/factory/identityCompliance/types";
+import { DojahException } from "@/modules/factory/identityCompliance/providers/dojah/errors";
 import { CryptoAccountQueueProducer } from "@/modules/api/trade/queues/producers/producer.service";
 import { SmsService } from "@/modules/core/sms/services";
 import { SessionService } from "@/modules/api/session/services";
@@ -74,7 +75,6 @@ import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { DocumentType, Prisma, Status, UserType } from "@prisma/client";
 import { authenticator } from "otplib";
 import * as bcrypt from "bcryptjs";
-import axios from "axios";
 import { matchNames, matchDateOfBirth } from "@/utils/name-matcher";
 
 function makePrisma() {
@@ -89,6 +89,16 @@ function makePrisma() {
         userDocument: {
             findUnique: jest.fn(),
             upsert: jest.fn(),
+        },
+        kycStageAttempt: {
+            findFirst: jest.fn(),
+            aggregate: jest.fn(),
+            updateMany: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+        },
+        kycAttemptEvent: {
+            create: jest.fn(),
         },
         businessDocument: {
             findUnique: jest.fn(),
@@ -115,6 +125,7 @@ function makePrisma() {
         passwordResetRequest: { create: jest.fn(), delete: jest.fn(), deleteMany: jest.fn() },
         adminInvite: { findUnique: jest.fn(), update: jest.fn() },
         $transaction: jest.fn(),
+        $executeRaw: jest.fn().mockResolvedValue(1),
     };
 }
 
@@ -127,6 +138,7 @@ describe("AuthService", () => {
     let notificationDispatcher: { notify: jest.Mock };
     let kycStateMachine: { transition: jest.Mock };
     let dojahService: {
+        analyzeDocument: jest.Mock;
         verifyDocumentWithNameMatch: jest.Mock;
         verifyBusinessDocuments: jest.Mock;
         verifyBvn: jest.Mock;
@@ -135,6 +147,12 @@ describe("AuthService", () => {
 
     beforeEach(async () => {
         prisma = makePrisma();
+        prisma.kycStageAttempt.findFirst.mockResolvedValue(null);
+        prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+        prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
+        prisma.kycStageAttempt.create.mockResolvedValue({ id: 1 });
+        prisma.kycAttemptEvent.create.mockResolvedValue({ id: 1 });
+        prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
 
         // Default: all identity checks pass (override in specific tests)
         (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
@@ -148,6 +166,7 @@ describe("AuthService", () => {
         const mockEmail = { sendMailWithTemplate: jest.fn().mockResolvedValue(undefined) };
         const mockUploadFactory = { build: jest.fn().mockReturnValue({}) };
         const mockDojah = {
+            analyzeDocument: jest.fn(),
             verifyDocumentWithNameMatch: jest.fn(),
             verifyBusinessDocuments: jest.fn(),
             verifyBvn: jest.fn(),
@@ -187,7 +206,14 @@ describe("AuthService", () => {
         const mockLock = {
             withLock: jest.fn().mockImplementation(async (_key: string, cb: () => any) => cb()),
         };
-        const mockKyc = { transition: jest.fn().mockResolvedValue(undefined) };
+        const mockKyc = {
+            transition: jest.fn().mockResolvedValue({
+                attemptId: 1,
+                status: "APPROVED",
+                version: 1,
+                isActive: true,
+            }),
+        };
         const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
         const mockWsGateway = { sendToUser: jest.fn(), notifyProfileUpdate: jest.fn() };
         const mockIdentityResolution = { resolveOrCreate: jest.fn().mockResolvedValue({ subjectId: 1, isNew: true }) };
@@ -766,24 +792,12 @@ describe("AuthService", () => {
         it("executes BVN dev bypass identity linking", async () => {
             const user = {
                 id: 41,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
             } as any;
 
             prisma.user.findFirst.mockResolvedValue(null);
-            dojahService.verifyBvn.mockResolvedValue({
-                data: {
-                    entity: {
-                        first_name: "Jane",
-                        last_name: "Doe",
-                        date_of_birth: "1990-01-01",
-                        phone_number1: "08000000000",
-                        reference_id: "bvn-ref-dev",
-                    },
-                },
-            });
             prisma.user.update.mockResolvedValue({});
             (service as any).identityResolution.resolveOrCreate.mockResolvedValue({
                 subjectId: 7,
@@ -793,25 +807,18 @@ describe("AuthService", () => {
             const result = await service.bvnVerification(user, { bvn: "22222222222" } as any);
 
             expect(result.message).toBe("Bvn Verification successfully");
-            expect(dojahService.verifyBvn).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    bvn: "22222222222",
-                    first_name: "Jane",
-                    last_name: "Doe",
-                    dob: "1990-01-01",
-                }),
-            );
+            expect(dojahService.verifyBvn).not.toHaveBeenCalled();
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "BVN",
                 expect.any(String),
                 41,
             );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
         it("executes BVN successful-path identity linking", async () => {
             const user = {
                 id: 42,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -851,53 +858,137 @@ describe("AuthService", () => {
                     dateOfBirth: "1990-01-01",
                 }),
             );
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        providerRef: "bvn-ref-1",
+                        status: "APPROVED",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "bvn-ref-1",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("creates an approved stage attempt without legacy writes for BVN dev-bypass resubmissions", async () => {
+            const user = {
+                id: 43,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            prisma.user.update.mockResolvedValue({});
+
+            await service.bvnVerification(user, { bvn: "22222222222" } as any);
+
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        providerRef: "DEV_BYPASS",
+                        status: "APPROVED",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        providerRef: "DEV_BYPASS",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "DEV_BYPASS",
+                    }),
+                }),
+            );
+        });
+
+        it("records RESUBMITTED before APPROVED for BVN dev-bypass resubmissions", async () => {
+            const user = {
+                id: 44,
+                firstName: "Jane",
+                lastName: "Doe",
+                dateOfBirth: new Date("1990-01-01"),
+            } as any;
+
+            prisma.user.findFirst.mockResolvedValue(null);
+            prisma.user.update.mockResolvedValue({});
+            prisma.kycStageAttempt.findFirst
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce({ status: "REJECTED" });
+
+            await service.bvnVerification(user, { bvn: "22222222222" } as any);
+
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "RESUBMITTED",
+                        providerRef: "DEV_BYPASS",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "DEV_BYPASS",
+                    }),
+                }),
+            );
         });
 
         it("executes NIN dev bypass identity linking", async () => {
             const user = {
                 id: 51,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
             } as any;
 
             prisma.user.findFirst.mockResolvedValue(null);
-            dojahService.verifyNin.mockResolvedValue({
-                data: {
-                    entity: {
-                        first_name: "John",
-                        last_name: "Doe",
-                        date_of_birth: "1990-01-01",
-                        phone_number: "08022222222",
-                        reference_id: "nin-ref-dev",
-                    },
-                },
-            });
             prisma.user.update.mockResolvedValue({});
 
             const result = await service.ninVerification(user, { nin: "00000000001" } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
-            expect(dojahService.verifyNin).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    nin: "00000000001",
-                    first_name: "John",
-                    last_name: "Doe",
-                    dob: "1990-01-01",
-                }),
-            );
+            expect(dojahService.verifyNin).not.toHaveBeenCalled();
             expect((service as any).identityResolution.resolveOrCreate).toHaveBeenCalledWith(
                 "NIN",
                 expect.any(String),
                 51,
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "DEV_BYPASS",
+                    }),
+                }),
             );
         });
 
         it("executes NIN successful-path identity linking", async () => {
             const user = {
                 id: 52,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -942,7 +1033,6 @@ describe("AuthService", () => {
         it("maps BVN unique constraint errors to conflict response", async () => {
             const user = {
                 id: 61,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -974,7 +1064,6 @@ describe("AuthService", () => {
         it("rethrows unexpected BVN persistence errors", async () => {
             const user = {
                 id: 62,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1002,7 +1091,6 @@ describe("AuthService", () => {
         it("maps NIN unique constraint errors to conflict response", async () => {
             const user = {
                 id: 63,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1034,7 +1122,6 @@ describe("AuthService", () => {
         it("rethrows unexpected NIN persistence errors", async () => {
             const user = {
                 id: 64,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1062,7 +1149,6 @@ describe("AuthService", () => {
         it("blocks BVN verification when profile is incomplete", async () => {
             const user = {
                 id: 65,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: null,
@@ -1081,7 +1167,6 @@ describe("AuthService", () => {
 
             const user = {
                 id: 66,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1103,12 +1188,23 @@ describe("AuthService", () => {
                 service.bvnVerification(user, { bvn: "33333333333" } as any),
             ).rejects.toThrow("Incorrect first name, last name or date of birth");
 
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                66,
-                "BVN",
-                "REJECTED",
-                expect.objectContaining({ providerRef: "bvn-ref-mismatch" }),
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "REJECTED",
+                        providerRef: "bvn-ref-mismatch",
+                    }),
+                }),
             );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        providerRef: "bvn-ref-mismatch",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
         it("rejects BVN verification when provider response omits identity fields", async () => {
@@ -1117,7 +1213,6 @@ describe("AuthService", () => {
 
             const user = {
                 id: 68,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1136,21 +1231,23 @@ describe("AuthService", () => {
                 service.bvnVerification(user, { bvn: "33333333334" } as any),
             ).rejects.toThrow("Incorrect first name, last name or date of birth");
 
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                68,
-                "BVN",
-                "REJECTED",
-                expect.objectContaining({ providerRef: "bvn-ref-missing-fields" }),
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        providerRef: "bvn-ref-missing-fields",
+                    }),
+                }),
             );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
-        it("routes BVN to manual review when DOB matches but names mismatch", async () => {
+        it("auto-rejects BVN when provider details mismatch the profile", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
             (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
 
             const user = {
                 id: 70,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1170,16 +1267,27 @@ describe("AuthService", () => {
 
             const result = await service.bvnVerification(user, { bvn: "33333333335" } as any);
 
-            expect(result.message).toBe("BVN submitted for manual review. An admin will review your details shortly.");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                70,
-                "BVN",
-                "PENDING",
-                expect.objectContaining({ providerRef: "bvn-ref-manual-review" }),
+            expect(result.message).toBe("The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "REJECTED",
+                        providerRef: "bvn-ref-manual-review",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        providerRef: "bvn-ref-manual-review",
+                    }),
+                }),
             );
             expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:70");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
         it("reopens BVN review with RESUBMITTED when PENDING transition is illegal", async () => {
@@ -1188,7 +1296,6 @@ describe("AuthService", () => {
 
             const user = {
                 id: 71,
-                isBvnVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1199,43 +1306,37 @@ describe("AuthService", () => {
                 data: {
                     entity: {
                         first_name: "Alex",
-                        last_name: "Smith",
-                        date_of_birth: "1990-01-01",
+                        last_name: null,
+                        date_of_birth: null,
                         reference_id: "bvn-ref-resubmitted",
                     },
                 },
             });
 
-            ((service as any).kycStateMachine.transition as jest.Mock)
-                .mockRejectedValueOnce(new Error("Illegal transition"))
-                .mockResolvedValueOnce(undefined);
+            prisma.kycStageAttempt.findFirst
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce({ status: "REJECTED" });
 
             const result = await service.bvnVerification(user, { bvn: "33333333336" } as any);
 
-            expect(result.message).toBe("BVN submitted for manual review. An admin will review your details shortly.");
-            expect((service as any).kycStateMachine.transition).toHaveBeenNthCalledWith(
-                1,
-                71,
-                "BVN",
-                "PENDING",
-                expect.objectContaining({ providerRef: "bvn-ref-resubmitted" }),
+            expect(result.message).toBe("We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "RESUBMITTED",
+                        providerRef: "bvn-ref-resubmitted",
+                    }),
+                }),
             );
-            expect((service as any).kycStateMachine.transition).toHaveBeenNthCalledWith(
-                2,
-                71,
-                "BVN",
-                "RESUBMITTED",
-                expect.objectContaining({ providerRef: "bvn-ref-resubmitted" }),
-            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
-        it("routes NIN to manual review when DOB matches but names mismatch", async () => {
+        it("auto-rejects NIN when provider details mismatch the profile", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
             (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
 
             const user = {
                 id: 72,
-                isNinVerified: false,
                 firstName: "Jane",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1255,22 +1356,24 @@ describe("AuthService", () => {
 
             const result = await service.ninVerification(user, { nin: "44444444446" } as any);
 
-            expect(result.message).toBe("NIN submitted for manual review. An admin will review your details shortly.");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                72,
-                "NIN",
-                "PENDING",
-                expect.objectContaining({ providerRef: "nin-ref-manual-review" }),
+            expect(result.message).toBe("The submitted NIN details do not match your profile. Please submit the correct NIN that belongs to you and matches your name and date of birth.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        providerRef: "nin-ref-manual-review",
+                    }),
+                }),
             );
             expect((service as any).redisCacheService.del).toHaveBeenCalledWith("user:profile:72");
             expect((service as any).identityResolution.resolveOrCreate).not.toHaveBeenCalled();
             expect(prisma.user.update).not.toHaveBeenCalled();
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
         it("continues NIN verification when enqueue fails after persistence", async () => {
             const user = {
                 id: 67,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1298,18 +1401,20 @@ describe("AuthService", () => {
             const result = await service.ninVerification(user, { nin: "44444444444" } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                67,
-                "NIN",
-                "APPROVED",
-                expect.objectContaining({ providerRef: "nin-ref-enqueue-fail" }),
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "nin-ref-enqueue-fail",
+                    }),
+                }),
             );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
         it("continues NIN verification when enqueue throws an Error instance", async () => {
             const user = {
                 id: 69,
-                isNinVerified: false,
                 firstName: "John",
                 lastName: "Doe",
                 dateOfBirth: new Date("1990-01-01"),
@@ -1337,12 +1442,15 @@ describe("AuthService", () => {
             const result = await service.ninVerification(user, { nin: "44444444445" } as any);
 
             expect(result.message).toBe("NIN Verification successfully");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                69,
-                "NIN",
-                "APPROVED",
-                expect.objectContaining({ providerRef: "nin-ref-enqueue-error-instance" }),
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "nin-ref-enqueue-error-instance",
+                    }),
+                }),
             );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
     });
 
@@ -1373,10 +1481,12 @@ describe("AuthService", () => {
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 isPasswordCreated: true,
-                isBvnVerified: true,
+                bvn: null,
+                nin: "12345678901",
                 isDocumentVerified: false,
                 businessRecordCompleted: false,
                 businessDocumentVerificationStatus: null,
+                kycStageAttempts: [],
                 failedLoginAttempts: 0,
                 lastFailedLogin: null,
                 lockedUntil: null,
@@ -1391,6 +1501,13 @@ describe("AuthService", () => {
 
             expect(result.data.accessToken).toBe("access-token");
             expect(result.data.refreshToken).toBe("refresh-token");
+            expect(result.data.verificationStatus).toMatchObject({
+                emailVerified: true,
+                phoneVerified: true,
+                passwordCreated: true,
+                governmentIdVerified: true,
+                documentVerified: false,
+            });
         });
 
         it("should throw for invalid password", async () => {
@@ -1505,10 +1622,12 @@ describe("AuthService", () => {
                 isEmailVerified: true,
                 isPhoneVerified: true,
                 isPasswordCreated: true,
-                isBvnVerified: true,
+                bvn: "12345678901",
+                nin: null,
                 isDocumentVerified: false,
                 businessRecordCompleted: true,
                 businessDocumentVerificationStatus: "PENDING",
+                kycStageAttempts: [],
                 failedLoginAttempts: 0,
                 lastFailedLogin: null,
                 lockedUntil: null,
@@ -1525,6 +1644,8 @@ describe("AuthService", () => {
             );
 
             expect(result.data.userType).toBe("business");
+            expect(result.data.verificationStatus.governmentIdVerified).toBe(true);
+            expect(result.data.verificationStatus.documentVerified).toBe(false);
             expect(result.data.verificationStatus.businessRecordCompleted).toBe(true);
             expect(result.data.verificationStatus.businessDocumentVerificationStatus).toBe("PENDING");
         });
@@ -1712,10 +1833,12 @@ describe("AuthService", () => {
             isEmailVerified: true,
             isPhoneVerified: true,
             isPasswordCreated: true,
-            isBvnVerified: true,
+            bvn: "12345678901",
+            nin: null,
             isDocumentVerified: false,
             businessRecordCompleted: false,
             businessDocumentVerificationStatus: null,
+            kycStageAttempts: [],
         };
 
         it("rejects invalid or expired temporary 2FA token", async () => {
@@ -1892,17 +2015,399 @@ describe("AuthService", () => {
         };
 
         it("documentVerificationBase64 rejects already-verified users", async () => {
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "APPROVED" });
+
             await expect(
                 service.documentVerificationBase64({ id: 1, isDocumentVerified: true } as any, base64Dto as any),
             ).rejects.toThrow("Document has already been verified");
         });
 
         it("documentVerificationBase64 rejects duplicate pending verification", async () => {
-            prisma.userDocument.findUnique.mockResolvedValue({ verificationStatus: "PENDING" });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "PENDING_REVIEW" });
 
             await expect(
                 service.documentVerificationBase64({ id: 1, isDocumentVerified: false } as any, base64Dto as any),
             ).rejects.toThrow("Document verification is pending review");
+        });
+
+        it("previewDocument blocks when the uploaded document type does not match the selected path", async () => {
+            dojahService.analyzeDocument.mockResolvedValue({
+                parsed: {
+                    isValid: true,
+                    reason: "valid",
+                    documentType: "passport",
+                    country: "Nigeria",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    documentNumber: "P12345",
+                    hasPortrait: true,
+                    hasFrontSide: true,
+                    hasBackSide: false,
+                    hasExtractedText: true,
+                },
+                response: { data: { entity: {} } },
+            });
+
+            const result = await service.previewDocument(
+                { id: 1 } as any,
+                {
+                    imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+                    documentType: DocumentType.NIN,
+                } as any,
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.message).toBe("Wrong document. Please upload a valid NIN slip.");
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    stage: "IDENTITY_DOCUMENT",
+                    outcome: "BLOCKED",
+                    providerStatus: "FAILED",
+                    isValid: false,
+                    canSubmit: false,
+                    reasonCode: "DOCUMENT_TYPE_MISMATCH",
+                    reasonMessage: "Wrong document. Please upload a valid NIN slip.",
+                    reason: "DOCUMENT_TYPE_MISMATCH",
+                    documentType: "passport",
+                    documentTypeMatches: false,
+                    documentNumber: "P12345",
+                    autofill: { documentNumber: "P12345" },
+                }),
+            );
+            expect(result.data).not.toHaveProperty("firstName");
+        });
+
+        it("previewDocument warns on invalid preview but still allows submit when the selected path matches", async () => {
+            dojahService.analyzeDocument.mockResolvedValue({
+                parsed: {
+                    isValid: false,
+                    reason: "invalid",
+                    documentType: "nin slip",
+                    country: "Nigeria",
+                    countryCode: "NG",
+                    documentNumber: "12345678901",
+                    hasPortrait: true,
+                    hasFrontSide: true,
+                    hasBackSide: false,
+                    hasExtractedText: true,
+                },
+                response: { data: { entity: {} } },
+            });
+
+            const result = await service.previewDocument(
+                { id: 1 } as any,
+                {
+                    imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+                    documentType: DocumentType.NIN,
+                } as any,
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    stage: "IDENTITY_DOCUMENT",
+                    outcome: "REVIEW_LIKELY",
+                    providerStatus: "FAILED",
+                    isValid: false,
+                    canSubmit: true,
+                    reasonCode: "DOCUMENT_INVALID",
+                    reasonMessage: "Document could not be verified. Please upload a valid document.",
+                    reason: "invalid",
+                    documentType: "nin slip",
+                    documentTypeMatches: true,
+                    documentNumber: "12345678901",
+                    autofill: { documentNumber: "12345678901" },
+                }),
+            );
+        });
+
+        it("previewDocument marks non-Nigerian documents as invalid", async () => {
+            dojahService.analyzeDocument.mockResolvedValue({
+                parsed: {
+                    isValid: true,
+                    reason: "valid",
+                    documentType: "nin slip",
+                    country: "Ghana",
+                    countryCode: "GH",
+                    documentNumber: "12345678901",
+                    hasPortrait: true,
+                    hasFrontSide: true,
+                    hasBackSide: false,
+                    hasExtractedText: true,
+                },
+                response: { data: { entity: {} } },
+            });
+
+            const result = await service.previewDocument(
+                { id: 1 } as any,
+                {
+                    imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+                    documentType: DocumentType.NIN,
+                } as any,
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.message).toBe("Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.");
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    isValid: false,
+                    canSubmit: true,
+                    providerStatus: "FAILED",
+                    reasonCode: "DOCUMENT_INVALID",
+                    reason: "DOCUMENT_COUNTRY_NOT_NIGERIA",
+                }),
+            );
+        });
+
+        it("previewDocument keeps driver license back images out of provider OCR", async () => {
+            dojahService.analyzeDocument.mockResolvedValue({
+                parsed: {
+                    isValid: true,
+                    reason: "valid",
+                    documentType: "drivers license",
+                    country: "Nigeria",
+                    countryCode: "NG",
+                    documentNumber: "DL12345",
+                    hasPortrait: true,
+                    hasFrontSide: true,
+                    hasBackSide: false,
+                    hasExtractedText: true,
+                },
+                response: { data: { entity: {} } },
+            });
+
+            const result = await service.previewDocument(
+                { id: 1 } as any,
+                {
+                    imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+                    imageBackBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0y",
+                    documentType: DocumentType.DRIVER_LICENSE,
+                } as any,
+            );
+
+            const providerPayload = dojahService.analyzeDocument.mock.calls[0]?.[0];
+            expect(providerPayload).toEqual(
+                expect.objectContaining({
+                    inputType: "base64",
+                    imageFrontSide: "ZmFrZS1pbWFnZS0x",
+                }),
+            );
+            expect(providerPayload).not.toHaveProperty("imageBackSide");
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    documentTypeMatches: true,
+                    documentNumber: "DL12345",
+                }),
+            );
+        });
+
+        it("previewDocumentWithProviderLog returns the exact provider request and response for preview reuse", async () => {
+            dojahService.analyzeDocument.mockResolvedValue({
+                parsed: {
+                    isValid: true,
+                    reason: "valid",
+                    documentType: "passport",
+                    country: "Nigeria",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    documentNumber: "P12345",
+                    dateOfBirth: "1990-01-01",
+                    hasPortrait: true,
+                    hasFrontSide: true,
+                    hasBackSide: false,
+                    hasExtractedText: true,
+                },
+                response: { data: { entity: { reference_id: "dojah-ref-1" } } },
+            });
+
+            const result = await service.previewDocumentWithProviderLog(
+                { id: 1 } as any,
+                {
+                    imageFrontBase64: "data:image/png;base64,ZmFrZS1pbWFnZS0x",
+                    documentType: DocumentType.INTERNATIONAL_PASSPORT,
+                } as any,
+            );
+
+            expect(result.providerInteraction).toEqual(
+                expect.objectContaining({
+                    provider: "DOJAH",
+                    request: expect.objectContaining({
+                        inputType: "base64",
+                        imageFrontSide: "ZmFrZS1pbWFnZS0x",
+                    }),
+                    response: expect.objectContaining({
+                        parsed: expect.objectContaining({
+                            documentNumber: "P12345",
+                            firstName: "John",
+                        }),
+                    }),
+                }),
+            );
+            expect(result.data).not.toHaveProperty("firstName");
+        });
+
+        it("analyzeIncomeDocumentSignals preserves raw Dojah failure details for preview persistence", async () => {
+            const fileBuffer = Buffer.from("fake-income-image");
+
+            dojahService.analyzeDocument.mockRejectedValueOnce(Object.assign(new Error("Service not available"), {
+                name: "DojahThirdPartyServiceFailureError",
+                status: 424,
+                responseBody: {
+                    error: "Service not available",
+                    code: "DOC_ANALYSIS_UNAVAILABLE",
+                },
+                requestMetadata: {
+                    method: "POST",
+                    url: "/api/v1/document/analysis",
+                    baseURL: "https://api.dojah.test",
+                },
+            }));
+
+            const result = await service.analyzeIncomeDocumentSignals(
+                {
+                    id: 10,
+                    firstName: "Ada",
+                    lastName: "Lovelace",
+                } as any,
+                {
+                    buffer: fileBuffer,
+                    mimetype: "image/png",
+                    originalname: "statement.png",
+                } as any,
+            );
+
+            expect(dojahService.analyzeDocument).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    inputType: "base64",
+                    imageFrontSide: fileBuffer.toString("base64"),
+                }),
+            );
+            expect(result).toEqual({
+                providerInteraction: expect.objectContaining({
+                    provider: "DOJAH",
+                    request: expect.objectContaining({
+                        endpoint: "/api/v1/document/analysis",
+                        inputType: "base64",
+                        fileName: "statement.png",
+                        mimeType: "image/png",
+                        originalByteLength: fileBuffer.length,
+                        preparedByteLength: fileBuffer.length,
+                    }),
+                    error: {
+                        name: "DojahThirdPartyServiceFailureError",
+                        message: "Service not available",
+                        status: 424,
+                        responseBody: {
+                            error: "Service not available",
+                            code: "DOC_ANALYSIS_UNAVAILABLE",
+                        },
+                        requestMetadata: {
+                            method: "POST",
+                            url: "/api/v1/document/analysis",
+                            baseURL: "https://api.dojah.test",
+                        },
+                    },
+                }),
+            });
+        });
+
+        it("analyzeIncomeDocumentSignals preserves metadata from wrapped DojahException failures", async () => {
+            const fileBuffer = Buffer.from("fake-wrapped-income-image");
+
+            dojahService.analyzeDocument.mockRejectedValueOnce(new DojahException(
+                "Service not available",
+                424,
+                {
+                    providerErrorName: "DojahThirdPartyServiceFailureError",
+                    responseBody: {
+                        error: "Service not available",
+                    },
+                    requestMetadata: {
+                        method: "POST",
+                        url: "/api/v1/document/analysis",
+                        baseURL: "https://api.dojah.io",
+                    },
+                },
+            ));
+
+            const result = await service.analyzeIncomeDocumentSignals(
+                {
+                    id: 10,
+                    firstName: "Ada",
+                    lastName: "Lovelace",
+                } as any,
+                {
+                    buffer: fileBuffer,
+                    mimetype: "image/png",
+                    originalname: "statement.png",
+                } as any,
+            );
+
+            expect(result).toEqual({
+                providerInteraction: expect.objectContaining({
+                    provider: "DOJAH",
+                    error: {
+                        name: "DojahException",
+                        message: "Service not available",
+                        status: 424,
+                        providerErrorName: "DojahThirdPartyServiceFailureError",
+                        responseBody: {
+                            error: "Service not available",
+                        },
+                        requestMetadata: {
+                            method: "POST",
+                            url: "/api/v1/document/analysis",
+                            baseURL: "https://api.dojah.io",
+                        },
+                    },
+                }),
+            });
+        });
+
+        it("buildIdentityVerificationResultFromPreview prefers persisted provider interaction over the synthetic fallback", () => {
+            const previewPayload = {
+                isValid: true,
+                comparisonSummary: {
+                    nameMatches: false,
+                },
+                providerInteraction: {
+                    provider: "DOJAH",
+                    request: {
+                        inputType: "base64",
+                        imageFrontSide: "front-image",
+                    },
+                    response: {
+                        parsed: {
+                            documentType: "passport",
+                            country: "Nigeria",
+                            countryCode: "NG",
+                            firstName: "Ada",
+                            lastName: "Lovelace",
+                            givenNames: "Augusta Ada",
+                            documentNumber: "A1234567",
+                            dateOfBirth: "1815-12-10",
+                            hasExtractedText: true,
+                            hasPortrait: true,
+                            hasFrontSide: true,
+                        },
+                    },
+                },
+            };
+
+            const result = (service as any).buildIdentityVerificationResultFromPreview(previewPayload);
+
+            expect(result.parsed).toEqual(
+                expect.objectContaining({
+                    firstName: "Ada",
+                    lastName: "Lovelace",
+                    dateOfBirth: "1815-12-10",
+                    documentNumber: "A1234567",
+                }),
+            );
+            expect(JSON.parse(result.raw)).toEqual(previewPayload.providerInteraction);
         });
 
         it("documentVerificationBase64 auto-approves valid documents", async () => {
@@ -1926,18 +2431,28 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
+                    $executeRaw: prisma.$executeRaw,
                     userDocument: { upsert: jest.fn().mockResolvedValue({ id: 11 }) },
-                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 101 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
                 }),
             );
 
             const result = await service.documentVerificationBase64(
                 {
                     id: 1,
+                    email: "john@flipxer.local",
                     isDocumentVerified: false,
                     firstName: "John",
                     lastName: "Doe",
@@ -1947,16 +2462,115 @@ describe("AuthService", () => {
             );
 
             expect(result.message).toBe("Document verified successfully");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
                 1,
-                "DOCUMENT",
-                "APPROVED",
-                expect.any(Object),
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        providerRef: "P12345",
+                    }),
+                }),
             );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "P12345",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "P12345",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
             expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(1);
         });
 
-        it("documentVerificationBase64 marks invalid documents as pending review", async () => {
+        it("documentVerificationBase64 falls back to the extracted document number for upload-only submissions", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            const userDocumentUpsert = jest.fn().mockResolvedValue({ id: 12 });
+            const kycStageAttemptCreate = jest.fn().mockResolvedValue({ id: 102 });
+
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-upload-only-1" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "front-upload-only-2" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: true,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                    documentNumber: "P43210",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: userDocumentUpsert },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: kycStageAttemptCreate,
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    email: "john@flipxer.local",
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                {
+                    ...base64Dto,
+                    documentNumber: undefined,
+                } as any,
+            );
+
+            expect(result.message).toBe("Document verified successfully");
+            expect(userDocumentUpsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    update: expect.objectContaining({ documentNumber: "P43210" }),
+                    create: expect.objectContaining({ documentNumber: "P43210" }),
+                }),
+            );
+            expect(kycStageAttemptCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        extractedFields: expect.objectContaining({
+                            documentNumber: "P43210",
+                            submittedDocumentNumber: null,
+                            extractedDocumentNumber: "P43210",
+                        }),
+                        comparisonSummary: expect.objectContaining({ documentNumberMatches: null }),
+                    }),
+                }),
+            );
+        });
+
+        it("documentVerificationBase64 rejects invalid documents before manual review", async () => {
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
                 .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-2" })
@@ -1968,23 +2582,16 @@ describe("AuthService", () => {
                 parsed: {
                     documentType: "passport",
                     countryCode: "NG",
+                    reason: "NOT_VALID",
                     documentNumber: "P99999",
                 },
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(false);
-
-            prisma.$transaction.mockImplementation(async (callback: any) =>
-                callback({
-                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 12 }) },
-                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
-                }),
-            );
-
             const result = await service.documentVerificationBase64(
                 {
                     id: 1,
+                    email: "john@flipxer.local",
                     isDocumentVerified: false,
                     firstName: "John",
                     lastName: "Doe",
@@ -1993,16 +2600,36 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("Document verification is pending review");
+            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(result.data).toEqual(
+                expect.objectContaining({
+                    status: "DECLINED",
+                    outcome: "REJECTED_HARD_STOP",
+                    reasonMessage: "Document could not be verified. Please upload a valid document.",
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "Document could not be verified. Please upload a valid document.",
+                        providerRef: "P99999",
+                    }),
+                }),
+            );
             expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 1,
-                    title: "Document Submitted",
+                    title: "Document Rejected",
+                    body: "Document could not be verified. Please upload a valid document.",
                 }),
             );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
-        it("documentVerificationBase64 keeps valid but mismatched documents pending review", async () => {
+        it("documentVerificationBase64 auto-rejects valid documents when both name and DOB mismatch", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
                 .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3" })
@@ -2016,24 +2643,291 @@ describe("AuthService", () => {
                     countryCode: "NG",
                     firstName: "Kehinde",
                     lastName: "Onileola",
+                    dateOfBirth: "1988-03-15",
                     documentNumber: "P77777",
                     expiryDate: "2030-01-01",
                 },
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
+                    $executeRaw: prisma.$executeRaw,
                     userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
-                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 103 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
                 }),
             );
 
             const result = await service.documentVerificationBase64(
                 {
                     id: 1,
+                    email: "john@flipxer.local",
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        providerRef: "P77777",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                        providerRef: "P77777",
+                    }),
+                }),
+            );
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    title: "Document Rejected",
+                    body: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                    merge_info: expect.objectContaining({
+                        rejection_reason: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("documentVerificationBase64 auto-rejects valid documents when extracted full name mismatches and DOB is unavailable", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-3b" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-3b" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "nin",
+                    countryCode: "NG",
+                    firstName: "Jane",
+                    lastName: "Uvo",
+                    dateOfBirth: null,
+                    documentNumber: "61842428215",
+                    expiryDate: null,
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 13 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 103 }) },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    email: "john@flipxer.local",
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                {
+                    ...base64Dto,
+                    documentType: DocumentType.NIN,
+                    documentNumber: "61842428215",
+                } as any,
+            );
+
+            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                        providerRef: "61842428215",
+                    }),
+                }),
+            );
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 1,
+                    title: "Document Rejected",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("documentVerificationBase64 auto-rejects NIN slips when the extracted NIN mismatches the verified profile NIN", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-nin-profile-mismatch" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-nin-profile-mismatch" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "nin",
+                    countryCode: "NG",
+                    firstName: null,
+                    lastName: "Uvo",
+                    dateOfBirth: null,
+                    documentNumber: "61842428215",
+                    expiryDate: null,
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 17 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 107 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 9,
+                    email: "eyitayo@flipxer.local",
+                    isDocumentVerified: false,
+                    firstName: "Eyitayo",
+                    lastName: "Akinyeye",
+                    dateOfBirth: new Date("1994-06-21"),
+                    nin: "43174483033",
+                } as any,
+                {
+                    ...base64Dto,
+                    documentType: DocumentType.NIN,
+                    documentNumber: "61842428215",
+                } as any,
+            );
+
+            expect(result.message).toBe("The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
+                        providerRef: "61842428215",
+                    }),
+                }),
+            );
+            expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 9,
+                    title: "Document Rejected",
+                    body: "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
+                }),
+            );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                    merge_info: expect.objectContaining({
+                        rejection_reason: "The NIN on the uploaded slip does not match the NIN verified on your profile. Please upload the correct NIN slip that belongs to you.",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("documentVerificationBase64 keeps partial OCR extraction pending review instead of auto-rejecting", async () => {
+            (matchDateOfBirth as jest.Mock).mockReturnValue(false);
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-partial" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-partial" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: null,
+                    lastName: "AKINYEYE",
+                    dateOfBirth: null,
+                    documentNumber: "43174483033",
+                    expiryDate: null,
+                    hasExtractedText: true,
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 15 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 105 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    email: "john@flipxer.local",
                     isDocumentVerified: false,
                     firstName: "John",
                     lastName: "Doe",
@@ -2043,12 +2937,13 @@ describe("AuthService", () => {
             );
 
             expect(result.message).toBe("Document verification is pending review");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                1,
-                "DOCUMENT",
-                "PENDING",
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledTimes(1);
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    reviewNote: "Manual review needed: valid=true, nameMatches=false, dobMatches=false",
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        note: "Manual review needed: valid=true, nameMatches=false, dobMatches=false",
+                    }),
                 }),
             );
             expect((service as any).notificationDispatcher.notify).toHaveBeenCalledWith(
@@ -2057,9 +2952,117 @@ describe("AuthService", () => {
                     title: "Document Submitted",
                 }),
             );
+            expect(emailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
         });
 
-        it("documentVerificationBase64 keeps name-matched but DOB-mismatched documents pending review", async () => {
+        it("documentVerificationBase64 keeps valid passports with only a partial profile name pending review", async () => {
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            const userDocumentUpsert = jest.fn().mockResolvedValue({ id: 16 });
+            const kycStageAttemptCreate = jest.fn().mockResolvedValue({ id: 106 });
+
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-passport-partial" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-passport-partial" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: false,
+                parsed: {
+                    documentType: "Passport",
+                    countryCode: "NG",
+                    firstName: "AKINYEYE",
+                    lastName: null,
+                    dateOfBirth: null,
+                    documentNumber: "43174483033",
+                    expiryDate: null,
+                    hasExtractedText: true,
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: userDocumentUpsert },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: kycStageAttemptCreate,
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    email: "eyitayo@flipxer.local",
+                    isDocumentVerified: false,
+                    firstName: "Eyitayo",
+                    lastName: "Akinyeye",
+                    dateOfBirth: new Date("1994-06-21"),
+                } as any,
+                {
+                    ...base64Dto,
+                    documentType: DocumentType.INTERNATIONAL_PASSPORT,
+                    documentNumber: "43174483033",
+                } as any,
+            );
+
+            expect(result.message).toBe("Document verification is pending review");
+            expect(userDocumentUpsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    update: expect.objectContaining({
+                        dojahNameMatches: false,
+                        verificationStatus: "PENDING",
+                    }),
+                    create: expect.objectContaining({
+                        dojahNameMatches: false,
+                        verificationStatus: "PENDING",
+                    }),
+                }),
+            );
+            expect(kycStageAttemptCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "PENDING_REVIEW",
+                        providerStatus: "INCONCLUSIVE",
+                        decisionMode: "MANUAL",
+                        comparisonSummary: expect.objectContaining({
+                            nameMatches: false,
+                            partialNameMatches: true,
+                            dobMatches: false,
+                            profileMatches: false,
+                            documentTypeMatches: true,
+                            documentNumberMatches: true,
+                        }),
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledTimes(1);
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        note: "Manual review needed: valid=true, nameMatches=false, dobMatches=false",
+                        providerRef: "43174483033",
+                    }),
+                }),
+            );
+            expect((service as any).tierService.syncTierAndCache).toHaveBeenCalledWith(1);
+        });
+
+        it("documentVerificationBase64 auto-rejects valid documents when DOB mismatches even if the name matches", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             prisma.userDocument.findUnique.mockResolvedValue(null);
             jest.spyOn(service as any, "uploadBase64Image")
@@ -2081,12 +3084,21 @@ describe("AuthService", () => {
                 raw: { provider: "dojah" },
                 error: null,
             });
-            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue(true);
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
+                    $executeRaw: prisma.$executeRaw,
                     userDocument: { upsert: jest.fn().mockResolvedValue({ id: 14 }) },
-                    user: { update: jest.fn().mockResolvedValue({ id: 1 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 0 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+                        create: jest.fn().mockResolvedValue({ id: 104 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
                 }),
             );
 
@@ -2101,13 +3113,138 @@ describe("AuthService", () => {
                 base64Dto as any,
             );
 
-            expect(result.message).toBe("Document verification is pending review");
-            expect((service as any).kycStateMachine.transition).toHaveBeenCalledWith(
-                1,
-                "DOCUMENT",
-                "PENDING",
+            expect(result.message).toBe("The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    reviewNote: "Manual review needed: valid=true, nameMatches=true, dobMatches=false",
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "The uploaded document details do not match your profile. Please upload the correct document that belongs to you and matches your name and date of birth.",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("documentVerificationBase64 blocks rejected resubmissions when the new document is invalid", async () => {
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-5" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-5" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: false,
+                nameMatches: false,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    reason: "NOT_VALID",
+                    documentNumber: "P99998",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document could not be verified. Please upload a valid document.");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "RESUBMITTED",
+                        providerRef: "P99998",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        note: "Document could not be verified. Please upload a valid document.",
+                        providerRef: "P99998",
+                    }),
+                }),
+            );
+            expect((service as any).kycStateMachine.transition).not.toHaveBeenCalled();
+        });
+
+        it("documentVerificationBase64 records RESUBMITTED before APPROVED on auto-approved resubmission", async () => {
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
+            prisma.userDocument.findUnique.mockResolvedValue(null);
+            jest.spyOn(service as any, "uploadBase64Image")
+                .mockResolvedValueOnce({ url: "https://img/front.png", fileId: "front-4" })
+                .mockResolvedValueOnce({ url: "https://img/back.png", fileId: "back-4" });
+            jest.spyOn(service as any, "callDojahDocumentVerification").mockResolvedValue({
+                success: true,
+                isValid: true,
+                nameMatches: true,
+                parsed: {
+                    documentType: "passport",
+                    countryCode: "NG",
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: "1990-01-01",
+                    documentNumber: "P55555",
+                    expiryDate: "2030-01-01",
+                },
+                raw: { provider: "dojah" },
+                error: null,
+            });
+            jest.spyOn(service as any, "applyDojahPostValidation").mockReturnValue({
+                isDocumentValid: true,
+                hardRejectMessage: null,
+            });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    userDocument: { upsert: jest.fn().mockResolvedValue({ id: 16 }) },
+                    kycStageAttempt: {
+                        aggregate: jest.fn().mockResolvedValue({ _max: { attemptNo: 1 } }),
+                        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+                        create: jest.fn().mockResolvedValue({ id: 106 }),
+                    },
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.documentVerificationBase64(
+                {
+                    id: 1,
+                    isDocumentVerified: false,
+                    firstName: "John",
+                    lastName: "Doe",
+                    dateOfBirth: new Date("1990-01-01"),
+                } as any,
+                base64Dto as any,
+            );
+
+            expect(result.message).toBe("Document verified successfully");
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "RESUBMITTED",
+                        providerRef: "P55555",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "APPROVED",
+                        providerRef: "P55555",
+                    }),
                 }),
             );
         });
@@ -2125,13 +3262,36 @@ describe("AuthService", () => {
             ).rejects.toThrow("CAC image is required");
         });
 
+        it("submitBusinessDocumentsFromUrls rejects unsupported legacy upload field names", async () => {
+            await expect(
+                service.submitBusinessDocumentsFromUrls(
+                    {
+                        id: 2,
+                        businessDocumentsUploaded: false,
+                        businessDocumentVerificationStatus: null,
+                    } as any,
+                    {
+                        cacDocumentNumber: "RC-123",
+                        uploadedFiles: {
+                            cacImage: { url: "https://img/cac.png", fileId: "cac-1" },
+                            certificateOfIncorporation: { url: "https://img/legacy-cac.png", fileId: "legacy-1" },
+                        },
+                    } as any,
+                ),
+            ).rejects.toThrow("Invalid field name: certificateOfIncorporation");
+        });
+
         it("submitBusinessDocumentsFromUrls persists structured docs and dispatches review flow", async () => {
             const runDojahSpy = jest
                 .spyOn(service as any, "runDojahBusinessVerificationFromStoredDocument")
                 .mockResolvedValue(undefined);
+            prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+            prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
+            prisma.kycStageAttempt.create.mockResolvedValue({ id: 901 });
 
             prisma.$transaction.mockImplementation(async (callback: any) =>
                 callback({
+                    $executeRaw: prisma.$executeRaw,
                     businessDocument: { upsert: jest.fn().mockResolvedValue({ id: 321 }) },
                     businessDirector: {
                         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -2142,6 +3302,8 @@ describe("AuthService", () => {
                         createMany: jest.fn().mockResolvedValue({ count: 1 }),
                     },
                     user: { update: jest.fn().mockResolvedValue({ id: 2 }) },
+                    kycStageAttempt: prisma.kycStageAttempt,
+                    kycAttemptEvent: prisma.kycAttemptEvent,
                 }),
             );
 
@@ -2208,7 +3370,90 @@ describe("AuthService", () => {
                     title: "Business Documents Submitted",
                 }),
             );
-            expect(runDojahSpy).toHaveBeenCalledWith(2, "RC-999");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        journeyType: "BUSINESS",
+                        stage: "BUSINESS_DOCUMENT",
+                        status: "SUBMITTED",
+                        providerRef: "RC-999",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        journeyType: "BUSINESS",
+                        stage: "BUSINESS_DOCUMENT",
+                        eventType: "SUBMITTED",
+                        providerRef: "RC-999",
+                    }),
+                }),
+            );
+            expect(runDojahSpy).toHaveBeenCalledWith(2, "RC-999", 901);
+            runDojahSpy.mockRestore();
+        });
+
+        it("updloadBusinessDocuments creates a business stage attempt before background verification", async () => {
+            const runDojahSpy = jest
+                .spyOn(service as any, "runDojahBusinessVerification")
+                .mockResolvedValue(undefined);
+            jest.spyOn(service as any, "uploadAsFile").mockResolvedValue({
+                url: "https://img/cac-upload.png",
+                fileId: "cac-upload-1",
+            });
+            prisma.kycStageAttempt.aggregate.mockResolvedValue({ _max: { attemptNo: 0 } });
+            prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
+            prisma.kycStageAttempt.create.mockResolvedValue({ id: 902 });
+
+            prisma.$transaction.mockImplementation(async (callback: any) =>
+                callback({
+                    $executeRaw: prisma.$executeRaw,
+                    businessDocument: { upsert: jest.fn().mockResolvedValue({ id: 654 }) },
+                    user: { update: jest.fn().mockResolvedValue({ id: 4 }) },
+                    kycStageAttempt: prisma.kycStageAttempt,
+                    kycAttemptEvent: prisma.kycAttemptEvent,
+                }),
+            );
+
+            const result = await service.updloadBusinessDocuments(
+                {
+                    id: 4,
+                    email: "biz@example.com",
+                    firstName: "Biz",
+                    businessDocumentsUploaded: false,
+                    businessDocumentVerificationStatus: null,
+                } as any,
+                {
+                    cacImage: [{ originalname: "cac.png" }],
+                } as any,
+                {
+                    cacDocumentNumber: "RC-UP-1",
+                } as any,
+            );
+
+            expect(result.message).toBe("Document Verification successfully");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        journeyType: "BUSINESS",
+                        stage: "BUSINESS_DOCUMENT",
+                        status: "SUBMITTED",
+                        providerRef: "RC-UP-1",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        journeyType: "BUSINESS",
+                        stage: "BUSINESS_DOCUMENT",
+                        eventType: "SUBMITTED",
+                        providerRef: "RC-UP-1",
+                    }),
+                }),
+            );
+            expect(runDojahSpy).toHaveBeenCalledWith(4, "RC-UP-1", expect.any(Object), 902);
             runDojahSpy.mockRestore();
         });
     });
@@ -2222,6 +3467,16 @@ describe("AuthService", () => {
                     { fieldName: "unknownField" } as any,
                 ),
             ).rejects.toThrow("Invalid field name: unknownField");
+        });
+
+        it("uploadSingleBusinessDocumentFile rejects the legacy certificateOfIncorporation alias", async () => {
+            await expect(
+                service.uploadSingleBusinessDocumentFile(
+                    { id: 50 } as any,
+                    { originalname: "doc.png" } as any,
+                    { fieldName: "certificateOfIncorporation" } as any,
+                ),
+            ).rejects.toThrow("Invalid field name: certificateOfIncorporation");
         });
 
         it("uploadSingleBusinessDocumentFile uploads valid dynamic director/shareholder fields", async () => {
@@ -2261,6 +3516,8 @@ describe("AuthService", () => {
                 businessName: "Acme Ltd",
                 taxIdentificationNumber: "TIN-123",
             });
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ id: 811, status: "SUBMITTED" });
+            prisma.kycStageAttempt.update.mockResolvedValue({ id: 811 });
             (dojahService as any).verifyBusinessDocuments.mockResolvedValue({
                 cac: {
                     verified: true,
@@ -2302,6 +3559,28 @@ describe("AuthService", () => {
             expect(prisma.businessDocument.update).toHaveBeenCalledWith(
                 expect.objectContaining({ where: { userId: 9 } }),
             );
+            expect(prisma.kycStageAttempt.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: { id: 811 },
+                    data: expect.objectContaining({
+                        status: "PENDING_REVIEW",
+                        providerName: "DOJAH",
+                        providerStatus: "PASSED",
+                        providerRef: "RC-123",
+                    }),
+                }),
+            );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        attemptId: 811,
+                        eventType: "PROVIDER_CHECK",
+                        actorType: "PROVIDER",
+                        providerName: "DOJAH",
+                        providerStatus: "PASSED",
+                    }),
+                }),
+            );
         });
 
         it("runDojahBusinessVerification swallows provider failures", async () => {
@@ -2322,19 +3601,24 @@ describe("AuthService", () => {
 
         it("runDojahBusinessVerificationFromStoredDocument fetches trusted URL and forwards synthetic file", async () => {
             prisma.businessDocument.findUnique.mockResolvedValue({ cacImageUrl: "https://ik.imagekit.io/folder/cac.webp" });
-            const axiosSpy = jest.spyOn(axios, "get").mockResolvedValue({ data: Buffer.from("binary") } as any);
+            const fetchSpy = jest
+                .spyOn(service as any, "fetchTrustedDocumentBuffer")
+                .mockResolvedValue(Buffer.from("binary"));
             const runSpy = jest.spyOn(service as any, "runDojahBusinessVerification").mockResolvedValue(undefined);
 
-            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(12, "RC-12")).resolves.toBeUndefined();
+            await expect((service as any).runDojahBusinessVerificationFromStoredDocument(12, "RC-12", 777)).resolves.toBeUndefined();
 
-            expect(axiosSpy).toHaveBeenCalledWith("https://ik.imagekit.io/folder/cac.webp", expect.any(Object));
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0][0]).toBeInstanceOf(URL);
+            expect(fetchSpy.mock.calls[0][0].toString()).toBe("https://ik.imagekit.io/folder/cac.webp");
             expect(runSpy).toHaveBeenCalledWith(
                 12,
                 "RC-12",
                 expect.objectContaining({ fieldname: "cacImage", mimetype: "image/webp" }),
+                777,
             );
 
-            axiosSpy.mockRestore();
+            fetchSpy.mockRestore();
             runSpy.mockRestore();
         });
 
@@ -2422,28 +3706,35 @@ describe("AuthService", () => {
             const logger = { warn: jest.fn(), log: jest.fn() } as any;
 
             const parsed = { expiryDate: "2010-01-01", reason: undefined, hasExtractedText: true };
-            expect(() =>
-                (service as any).applyDojahPostValidation(true, parsed, 1, logger),
-            ).toThrow("Document appears to be expired");
+            expect((service as any).applyDojahPostValidation(true, parsed, 1, logger)).toEqual({
+                isDocumentValid: false,
+                hardRejectMessage: "Document appears to be expired. Please upload a valid, unexpired document.",
+            });
             expect(parsed.reason).toBe("Document has expired");
 
-            expect(() =>
+            expect(
                 (service as any).applyDojahPostValidation(
                     false,
                     { reason: "UNSUPPORTED_DOCUMENT", hasExtractedText: true },
                     1,
                     logger,
                 ),
-            ).toThrow("This document type is not supported");
+            ).toEqual({
+                isDocumentValid: false,
+                hardRejectMessage: "This document type is not supported. Please upload a valid passport, driver's license, or national ID.",
+            });
 
-            expect(() =>
+            expect(
                 (service as any).applyDojahPostValidation(
                     false,
                     { reason: "NOT_VALID", hasExtractedText: true },
                     1,
                     logger,
                 ),
-            ).not.toThrow();
+            ).toEqual({
+                isDocumentValid: false,
+                hardRejectMessage: "Document could not be verified. Please upload a valid document.",
+            });
         });
 
         it("validates login platform and default security methods", () => {
@@ -2474,7 +3765,9 @@ describe("AuthService", () => {
             expect((service as any).mapDojahReasonToUserMessage("too_blurry")).toContain("unclear");
             expect((service as any).mapDojahReasonToUserMessage("expired_document")).toContain("expired");
             expect((service as any).mapDojahReasonToUserMessage("unsupported")).toContain("not supported");
-            expect((service as any).mapDojahReasonToUserMessage("CUSTOM_REASON")).toBe("CUSTOM_REASON");
+            expect((service as any).mapDojahReasonToUserMessage("CUSTOM_REASON")).toBe(
+                "Document could not be verified. Please upload a valid document.",
+            );
 
             expect((service as any).mapDojahToDocumentType("passport", undefined)).toBe(
                 (DocumentType as any).INTERNATIONAL_PASSPORT,
@@ -2534,6 +3827,33 @@ describe("AuthService", () => {
             expect(result.error).toBeNull();
         });
 
+        it("does not send driver license back images to Dojah verification", async () => {
+            dojahService.verifyDocumentWithNameMatch.mockResolvedValue({
+                isValid: true,
+                nameMatches: true,
+                parsed: { documentType: "drivers license" },
+            });
+
+            const logger = { log: jest.fn(), error: jest.fn() } as any;
+            await (service as any).callDojahDocumentVerification(
+                "front-base64",
+                "back-base64",
+                { id: 42, firstName: "Jane", lastName: "Doe" },
+                { imageFrontBase64: "front-base64", imageBackBase64: "back-base64", documentType: DocumentType.DRIVER_LICENSE },
+                Date.now(),
+                logger,
+            );
+
+            const providerPayload = dojahService.verifyDocumentWithNameMatch.mock.calls[0]?.[0];
+            expect(providerPayload).toEqual(
+                expect.objectContaining({
+                    inputType: "base64",
+                    imageFrontSide: "front-base64",
+                }),
+            );
+            expect(providerPayload).not.toHaveProperty("imageBackSide");
+        });
+
         it("returns structured failure result from Dojah document verification errors", async () => {
             dojahService.verifyDocumentWithNameMatch.mockRejectedValue({
                 name: "ThirdPartyServiceError",
@@ -2560,6 +3880,28 @@ describe("AuthService", () => {
                     name: "ThirdPartyServiceError",
                     message: "gateway unavailable",
                     status: 424,
+                }),
+            );
+        });
+
+        it("treats non-Nigerian document countries as invalid during post validation", () => {
+            const logger = { log: jest.fn(), warn: jest.fn() } as any;
+
+            const result = (service as any).applyDojahPostValidation(
+                true,
+                {
+                    reason: "valid",
+                    country: "Ghana",
+                    countryCode: "GH",
+                },
+                77,
+                logger,
+            );
+
+            expect(result).toEqual(
+                expect.objectContaining({
+                    isDocumentValid: false,
+                    hardRejectMessage: "Only Nigerian-issued documents are accepted. Please upload a valid Nigerian document.",
                 }),
             );
         });
@@ -2694,17 +4036,35 @@ describe("AuthService", () => {
             },
         };
 
-        it("should throw and send rejection notification + email when DOB mismatches", async () => {
+        it("should auto-reject and send rejection notification + email when DOB mismatches", async () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(false);
             (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "DOB mismatch" });
 
-            await expect(
-                (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN"),
-            ).rejects.toThrow("Incorrect first name, last name or date of birth");
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN", "12345678901");
 
-            expect(kycStateMachine.transition).toHaveBeenCalledWith(
-                10, "BVN", "REJECTED", expect.any(Object),
+            expect(result).toEqual({
+                disposition: "AUTO_REJECT",
+                responseMessage: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+                reasonMessage: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
+            });
+
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "REJECTED",
+                        providerRef: "ref-123",
+                    }),
+                }),
             );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "REJECTED",
+                        providerRef: "ref-123",
+                    }),
+                }),
+            );
+            expect(kycStateMachine.transition).not.toHaveBeenCalled();
             expect(notificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 10,
@@ -2717,22 +4077,49 @@ describe("AuthService", () => {
                     template_key: "tpl-rejected",
                     merge_info: expect.objectContaining({
                         document_type: "BVN",
+                        rejection_reason: "The submitted BVN details do not match your profile. Please submit the correct BVN that belongs to you and matches your name and date of birth.",
                         status: "Rejected",
                     }),
                 }),
             );
         });
 
-        it("should route to manual review and send pending notification + email when names mismatch but DOB matches", async () => {
-            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
+        it("should route to manual review when provider data is incomplete", async () => {
+            const incompleteResult = {
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: null,
+                        date_of_birth: null,
+                        reference_id: "ref-incomplete",
+                    },
+                },
+            };
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "NIN");
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, incompleteResult, "NIN", "12345678901");
 
-            expect(result).toBe("PENDING_REVIEW");
-            expect(kycStateMachine.transition).toHaveBeenCalledWith(
-                10, "NIN", "PENDING", expect.any(Object),
+            expect(result).toEqual({
+                disposition: "MANUAL_REVIEW",
+                responseMessage: "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
+                reasonMessage: "We couldn't confidently compare the submitted NIN details to your profile. Your verification has been sent for manual review.",
+            });
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        status: "PENDING_REVIEW",
+                        providerRef: "ref-incomplete",
+                    }),
+                }),
             );
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "SUBMITTED",
+                        providerRef: "ref-incomplete",
+                    }),
+                }),
+            );
+            expect(kycStateMachine.transition).not.toHaveBeenCalled();
             expect(notificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 10,
@@ -2755,27 +4142,42 @@ describe("AuthService", () => {
             (matchDateOfBirth as jest.Mock).mockReturnValue(true);
             (matchNames as jest.Mock).mockReturnValue({ matches: true, detail: "Exact match" });
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN", "12345678901");
 
-            expect(result).toBe("MATCHED");
+            expect(result).toEqual({ disposition: "MATCHED" });
             expect(notificationDispatcher.notify).not.toHaveBeenCalled();
             expect(emailService.sendMailWithTemplate).not.toHaveBeenCalled();
         });
 
-        it("should fallback to RESUBMITTED transition when PENDING transition fails", async () => {
-            (matchDateOfBirth as jest.Mock).mockReturnValue(true);
-            (matchNames as jest.Mock).mockReturnValue({ matches: false, detail: "Name mismatch" });
-            kycStateMachine.transition
-                .mockRejectedValueOnce(new Error("Cannot transition to PENDING"))
-                .mockResolvedValueOnce(undefined);
+        it("should record RESUBMITTED when the current government attempt is rejected", async () => {
+            const incompleteResult = {
+                data: {
+                    entity: {
+                        first_name: "Jane",
+                        last_name: null,
+                        date_of_birth: null,
+                        reference_id: "ref-incomplete-resubmitted",
+                    },
+                },
+            };
+            prisma.kycStageAttempt.findFirst.mockResolvedValue({ status: "REJECTED" });
 
-            const result = await (service as any).rejectOnIdentityMismatch(mockUser, mockResult, "BVN");
+            const result = await (service as any).rejectOnIdentityMismatch(mockUser, incompleteResult, "BVN", "12345678901");
 
-            expect(result).toBe("PENDING_REVIEW");
-            expect(kycStateMachine.transition).toHaveBeenCalledTimes(2);
-            expect(kycStateMachine.transition).toHaveBeenNthCalledWith(
-                2, 10, "BVN", "RESUBMITTED", expect.any(Object),
+            expect(result).toEqual({
+                disposition: "MANUAL_REVIEW",
+                responseMessage: "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
+                reasonMessage: "We couldn't confidently compare the submitted BVN details to your profile. Your verification has been sent for manual review.",
+            });
+            expect(prisma.kycAttemptEvent.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        eventType: "RESUBMITTED",
+                        providerRef: "ref-incomplete-resubmitted",
+                    }),
+                }),
             );
+            expect(kycStateMachine.transition).not.toHaveBeenCalled();
         });
     });
 });

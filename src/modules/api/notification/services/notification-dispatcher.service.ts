@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, forwardRef } from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { WsGateway } from "@/modules/api/trade/gateway/v1";
 import { NotificationEvent } from "../events/notification.event";
@@ -88,6 +88,7 @@ export class NotificationDispatcher {
 
     constructor(
         private readonly prisma: PrismaService,
+        @Inject(forwardRef(() => WsGateway))
         private readonly wsGateway: WsGateway,
         private readonly notificationEvent: NotificationEvent,
         private readonly pushNotificationService: PushNotificationService,

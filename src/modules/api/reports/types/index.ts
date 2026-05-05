@@ -36,10 +36,10 @@ export interface UserReportRow {
     tier: number;
     country: string;
     status: string;
-    isEmailVerified: boolean;
-    isPhoneVerified: boolean;
-    isBvnVerified: boolean;
-    isDocumentVerified: boolean;
+    emailVerified: boolean;
+    phoneVerified: boolean;
+    governmentIdVerified: boolean;
+    documentVerified: boolean;
     createdAt: string;
     lastLogin: string;
     loginCount: number;
