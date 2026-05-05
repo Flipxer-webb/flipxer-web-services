@@ -835,7 +835,7 @@ describe("KycService", () => {
             ["APPROVE", "APPROVED", undefined],
             ["REJECT", "REJECTED", "Blurry document"],
             ["ESCALATE", "ESCALATED", "Needs senior review"],
-        ])(
+        ] as const)(
             "writes an attempt-owned %s shadow event after a staged decision",
             async (action, eventType, note) => {
                 mockPrismaService.user.findUnique.mockResolvedValue(
@@ -3995,6 +3995,219 @@ describe("KycService", () => {
             if (expectCurrentMonthStart && period === "unexpected") {
                 expect(result.startDate.getMonth()).toBe(new Date().getMonth());
             }
+        });
+
+        it.each([
+            ["DOCUMENT", "FRONT_IMAGE", null, "DOCUMENT_FRONT"],
+            ["DOCUMENT", "BACK_IMAGE", null, "DOCUMENT_BACK"],
+            ["DOCUMENT", "FRONT_IMAGE", "BACK", "DOCUMENT_BACK"],
+            ["ADDRESS", "FILE", null, "ADDRESS_DOCUMENT"],
+            ["INCOME", "FILE", null, "INCOME_DOCUMENT"],
+            ["BVN", "SELFIE", null, "SELFIE"],
+        ])(
+            "maps %s evidence %s/%s to %s",
+            (verificationType, evidenceKind, evidenceSide, expected) => {
+                expect(
+                    (service as any).mapStageEvidenceKindToAdminKind(
+                        verificationType,
+                        evidenceKind,
+                        evidenceSide,
+                    ),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            ["DOCUMENT", "FRONT_IMAGE", null, "Identity document front"],
+            ["DOCUMENT", "FRONT_IMAGE", "BACK", "Identity document back"],
+            ["ADDRESS", "FILE", null, "Address document"],
+            ["INCOME", "FILE", null, "Income document"],
+            ["BVN", "SELFIE", null, "Verification document"],
+        ])(
+            "builds evidence labels for %s %s/%s",
+            (verificationType, evidenceKind, evidenceSide, expected) => {
+                expect(
+                    (service as any).getStageEvidenceLabel(
+                        verificationType,
+                        evidenceKind,
+                        evidenceSide,
+                    ),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            ["BVN", "GOVERNMENT_ID", "INDIVIDUAL", "BVN"],
+            ["NIN", "GOVERNMENT_ID", "INDIVIDUAL", "NIN"],
+            ["DOCUMENT", "IDENTITY_DOCUMENT", "INDIVIDUAL", "DOCUMENT"],
+            ["ADDRESS", "ADDRESS", "INDIVIDUAL", "DOCUMENT"],
+            ["INCOME", "INCOME", "INDIVIDUAL", "DOCUMENT"],
+            ["BUSINESS_DOCUMENT", "BUSINESS_DOCUMENT", "BUSINESS", "DOCUMENT"],
+            ["UNKNOWN", "UNKNOWN", "INDIVIDUAL", null],
+        ])(
+            "maps verification type %s to attempt metadata",
+            (
+                verificationType,
+                expectedStage,
+                expectedJourney,
+                expectedMethod,
+            ) => {
+                expect(
+                    (service as any).mapVerificationTypeToAttemptStage(
+                        verificationType,
+                    ),
+                ).toBe(expectedStage);
+                expect(
+                    (service as any).mapVerificationTypeToJourneyType(
+                        verificationType,
+                    ),
+                ).toBe(expectedJourney);
+                expect(
+                    (service as any).mapVerificationTypeToAttemptMethod(
+                        verificationType,
+                    ),
+                ).toBe(expectedMethod);
+            },
+        );
+
+        it.each([
+            ["APPROVED", "APPROVE"],
+            ["REJECTED", "REJECT"],
+            ["PENDING", "REVIEW"],
+            ["ESCALATED", "REVIEW"],
+            ["UNKNOWN", null],
+        ])("recommends decisions for %s attempts", (status, expected) => {
+            expect(
+                (service as any).getRecommendedDecisionForAttempt(status),
+            ).toBe(expected);
+        });
+
+        it.each([
+            [
+                "ADDRESS",
+                "PENDING",
+                ["APPROVE", "REJECT", "ESCALATE", "RECHECK"],
+            ],
+            [
+                "INCOME",
+                "ESCALATED",
+                ["APPROVE", "REJECT", "ESCALATE", "RECHECK"],
+            ],
+            ["DOCUMENT", "APPROVED", ["RECHECK"]],
+            ["UNKNOWN", "APPROVED", []],
+        ])(
+            "builds allowed actions for %s/%s",
+            (verificationType, status, expected) => {
+                expect(
+                    (service as any).getAllowedAttemptActions(
+                        verificationType,
+                        status,
+                    ),
+                ).toEqual(expected);
+            },
+        );
+
+        it.each([
+            ["APPROVED", KycStatus.APPROVED],
+            ["REJECTED", KycStatus.REJECTED],
+            ["EXPIRED", KycStatus.REJECTED],
+            ["ESCALATED", KycStatus.ESCALATED],
+            ["SUBMITTED", KycStatus.PENDING],
+            ["PENDING_REVIEW", KycStatus.PENDING],
+            [undefined, KycStatus.PENDING],
+        ])("maps stage attempt status %s to KYC status", (status, expected) => {
+            expect(
+                (service as any).mapStageAttemptStatusToKycStatus(status),
+            ).toBe(expected);
+        });
+
+        it.each([
+            [KycStatus.APPROVED, "APPROVED", "PASSED"],
+            [KycStatus.REJECTED, "REJECTED", "FAILED"],
+            [KycStatus.ESCALATED, "ESCALATED", "INCONCLUSIVE"],
+            [KycStatus.PENDING, "PENDING_REVIEW", "NOT_REQUESTED"],
+        ])(
+            "maps KYC status %s to staged status/provider status",
+            (status, expectedAttemptStatus, expectedProviderStatus) => {
+                expect(
+                    (service as any).mapKycStatusToStageAttemptStatus(status),
+                ).toBe(expectedAttemptStatus);
+                expect(
+                    (service as any).mapKycStatusToStageProviderStatus(status),
+                ).toBe(expectedProviderStatus);
+            },
+        );
+
+        it("builds admin attempt summaries with stage evidence and actions", () => {
+            const submittedAt = new Date("2026-05-01T10:00:00.000Z");
+
+            expect(
+                (service as any).buildAdminAttemptSummary(
+                    {
+                        id: 42,
+                        stage: "IDENTITY_DOCUMENT",
+                        method: "DOCUMENT",
+                        status: "PENDING_REVIEW",
+                        providerStatus: "INCONCLUSIVE",
+                        attemptNo: null,
+                        version: 3,
+                        submittedAt,
+                        reviewedAt: null,
+                        reasonMessage: "Needs review",
+                        evidenceAssets: [
+                            {
+                                storageUrl:
+                                    "https://ik.imagekit.io/flipxer/doc.png",
+                            },
+                        ],
+                    },
+                    { attemptNumbers: new Map([[42, 8]]) },
+                ),
+            ).toEqual(
+                expect.objectContaining({
+                    attemptId: 42,
+                    verificationType: "DOCUMENT",
+                    status: "PENDING",
+                    attemptNo: 8,
+                    version: 3,
+                    documentUrl: "https://ik.imagekit.io/flipxer/doc.png",
+                    recommendedDecision: "REVIEW",
+                    allowedActions: [
+                        "APPROVE",
+                        "REJECT",
+                        "ESCALATE",
+                        "RECHECK",
+                    ],
+                }),
+            );
+        });
+
+        it("treats complete verification snapshots as not blocking", () => {
+            expect(
+                (service as any).getBlockingVerificationTypes({
+                    isEmailVerified: true,
+                    isPhoneVerified: true,
+                    isBvnVerified: true,
+                    isNinVerified: false,
+                    bvn: "22222222222",
+                    nin: null,
+                    isDocumentVerified: true,
+                    userDocument: { id: 1 },
+                    isAddressVerified: true,
+                    addressDocumentUrl: "https://example.com/address.pdf",
+                    isIncomeVerified: true,
+                    incomeDocumentUrl: "https://example.com/income.pdf",
+                    userType: UserType.INDIVIDUAL,
+                    kycStageAttempts: [],
+                }),
+            ).toEqual([]);
+        });
+
+        it("trims trusted path prefixes without regex backtracking", () => {
+            expect((service as any).trimTrailingSlashes("/flipxer///")).toBe(
+                "/flipxer",
+            );
+            expect((service as any).trimTrailingSlashes("///")).toBe("");
         });
 
         it.each([

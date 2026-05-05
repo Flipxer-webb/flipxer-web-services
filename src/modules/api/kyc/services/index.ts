@@ -239,6 +239,14 @@ export class KycService {
         `user:profile:${userId}`;
 
     private readonly actionableStatuses = new Set(["PENDING", "ESCALATED"]);
+    private readonly stageManagedVerificationTypes = new Set([
+        "BVN",
+        "NIN",
+        "DOCUMENT",
+        "ADDRESS",
+        "INCOME",
+        "BUSINESS_DOCUMENT",
+    ]);
 
     constructor(
         private readonly prisma: PrismaService,
@@ -3362,7 +3370,7 @@ export class KycService {
     private trimTrailingSlashes(value: string): string {
         let endIndex = value.length;
 
-        while (endIndex > 0 && value.charCodeAt(endIndex - 1) === 47) {
+        while (endIndex > 0 && value.codePointAt(endIndex - 1) === 47) {
             endIndex -= 1;
         }
 
@@ -4630,10 +4638,7 @@ export class KycService {
             case "all":
                 return { startDate: new Date(0), endDate: now };
             default:
-                return {
-                    startDate: startOfMonth(now),
-                    endDate: endOfMonth(now),
-                };
+                return this.getDateRange("month");
         }
     }
 
@@ -4719,14 +4724,7 @@ export class KycService {
     }
 
     private isStageManagedVerificationType(verificationType: string): boolean {
-        return [
-            "BVN",
-            "NIN",
-            "DOCUMENT",
-            "ADDRESS",
-            "INCOME",
-            "BUSINESS_DOCUMENT",
-        ].includes(verificationType);
+        return this.stageManagedVerificationTypes.has(verificationType);
     }
 
     private isAttemptOwnedDecisionVerificationType(
@@ -5052,14 +5050,7 @@ export class KycService {
     }
 
     private canRecheckVerificationType(verificationType: string): boolean {
-        return [
-            "BVN",
-            "NIN",
-            "DOCUMENT",
-            "ADDRESS",
-            "INCOME",
-            "BUSINESS_DOCUMENT",
-        ].includes(verificationType);
+        return this.isStageManagedVerificationType(verificationType);
     }
 
     private buildQueueMetadata(user: any, queueView: KycQueueView) {

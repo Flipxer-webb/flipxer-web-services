@@ -1055,11 +1055,30 @@ export class IndividualKycStageService {
             return "INCOME_VALIDATION_REVIEW";
         }
 
-        return (
-            normalized
-                .replaceAll(/[^A-Z0-9]+/g, "_")
-                .replaceAll(/^_+|_+$/g, "") || "REVIEW_REQUIRED"
-        );
+        return this.normalizeReasonCode(normalized) || "REVIEW_REQUIRED";
+    }
+
+    private normalizeReasonCode(value: string): string {
+        let normalizedReasonCode = "";
+
+        for (const character of value) {
+            const codePoint = character.codePointAt(0) ?? 0;
+            const isUpperAlpha = codePoint >= 65 && codePoint <= 90;
+            const isDigit = codePoint >= 48 && codePoint <= 57;
+
+            if (isUpperAlpha || isDigit) {
+                normalizedReasonCode += character;
+            } else if (
+                normalizedReasonCode.length > 0 &&
+                !normalizedReasonCode.endsWith("_")
+            ) {
+                normalizedReasonCode += "_";
+            }
+        }
+
+        return normalizedReasonCode.endsWith("_")
+            ? normalizedReasonCode.slice(0, -1)
+            : normalizedReasonCode;
     }
 
     private getAddressPreviewProviderStatus(

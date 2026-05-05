@@ -189,9 +189,9 @@ export class TierVerificationService {
         let normalizedReasonCode = "";
 
         for (const character of value) {
-            const charCode = character.charCodeAt(0);
-            const isUpperAlpha = charCode >= 65 && charCode <= 90;
-            const isDigit = charCode >= 48 && charCode <= 57;
+            const codePoint = character.codePointAt(0) ?? 0;
+            const isUpperAlpha = codePoint >= 65 && codePoint <= 90;
+            const isDigit = codePoint >= 48 && codePoint <= 57;
 
             if (isUpperAlpha || isDigit) {
                 normalizedReasonCode += character;

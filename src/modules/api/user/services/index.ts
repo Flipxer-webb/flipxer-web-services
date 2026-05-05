@@ -1339,7 +1339,7 @@ export class UserService {
             select: { amount: true, currency: true, orderCategory: true },
         });
 
-        const uniqueCurrencies = Array.from(
+        const uniqueCurrencies: string[] = Array.from(
             new Set(
                 orders
                     .map((order) =>
@@ -1355,7 +1355,7 @@ export class UserService {
         const usdRates = new Map<string, number>();
 
         await Promise.all(
-            uniqueCurrencies.map(async (currency) => {
+            uniqueCurrencies.map(async (currency: string) => {
                 try {
                     const rate =
                         await this.liveCoinWatchService.getPriceInUSD(currency);

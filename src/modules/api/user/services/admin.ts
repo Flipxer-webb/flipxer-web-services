@@ -882,10 +882,7 @@ export class AdminUserService {
             case "all":
                 return { startDate: new Date(0), endDate: now };
             default:
-                return {
-                    startDate: startOfMonth(now),
-                    endDate: endOfMonth(now),
-                };
+                return this.getDateRange("month");
         }
     }
 }

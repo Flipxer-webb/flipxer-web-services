@@ -35,6 +35,7 @@ import {
     KycMethod,
     KycProviderName,
     KycProviderStatus,
+    KycStatus,
     KycStage,
 } from "@prisma/client";
 import { validateDocumentFile } from "@/core/validators/file-validator";
@@ -834,5 +835,326 @@ describe("IndividualKycStageService", () => {
                 }),
             }),
         );
+    });
+
+    describe("helper coverage", () => {
+        it.each([
+            [undefined, null],
+            [null, null],
+            [" ZmFrZQ== ", "ZmFrZQ=="],
+            ["data:image/png;base64, ZmFrZQ== ", "ZmFrZQ=="],
+        ])("normalizes base64 signatures for %s", (value, expected) => {
+            expect((service as any).normalizeBase64ForSignature(value)).toBe(
+                expected,
+            );
+        });
+
+        it.each([
+            ["ZmFrZQ==", { payload: "ZmFrZQ==", mimeType: null }],
+            [
+                "data:image/jpeg;base64,ZmFrZQ==",
+                { payload: "ZmFrZQ==", mimeType: "image/jpeg" },
+            ],
+            ["data:;base64,ZmFrZQ==", { payload: "ZmFrZQ==", mimeType: null }],
+            [
+                "data:image/png,not-base64",
+                { payload: "data:image/png,not-base64", mimeType: null },
+            ],
+        ])("reads base64 data URLs for %s", (value, expected) => {
+            expect((service as any).readBase64DataUrl(value)).toEqual(expected);
+        });
+
+        it.each([
+            [undefined, "image/jpeg"],
+            ["data:image/png;base64,ZmFrZQ==", "image/png"],
+            ["ZmFrZQ==", "image/jpeg"],
+        ])("detects base64 MIME type for %s", (value, expected) => {
+            expect((service as any).detectBase64MimeType(value)).toBe(expected);
+        });
+
+        it.each([
+            [
+                { reasonMessage: "  Direct reason  " },
+                null,
+                null,
+                "Direct reason",
+            ],
+            [{}, { previewMessage: "  From details  " }, null, "From details"],
+            [
+                {},
+                { previewMessage: "" },
+                { previewMessage: " From evidence " },
+                "From evidence",
+            ],
+            [
+                {},
+                null,
+                null,
+                "Please upload the document again and wait for preview to complete before submitting.",
+            ],
+        ])(
+            "resolves persisted preview failure messages",
+            (previewPayload, reasonDetails, evidenceSummary, expected) => {
+                expect(
+                    (service as any).getPersistedPreviewFailureMessage(
+                        previewPayload,
+                        reasonDetails,
+                        evidenceSummary,
+                    ),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            [true, false, false, KycProviderStatus.PASSED],
+            [false, true, false, KycProviderStatus.INCONCLUSIVE],
+            [false, false, true, KycProviderStatus.INCONCLUSIVE],
+            [false, false, false, KycProviderStatus.FAILED],
+        ])(
+            "maps identity preview provider status",
+            (isValid, canSubmit, hasExtractedText, expected) => {
+                expect(
+                    (service as any).mapIdentityPreviewProviderStatus(
+                        isValid,
+                        canSubmit,
+                        hasExtractedText,
+                    ),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            [
+                {
+                    verificationStatus: DocumentVerificationStatus.VERIFIED,
+                    dojahVerified: false,
+                    dojahExtractedFirstName: null,
+                    dojahExtractedDocNumber: null,
+                },
+                KycProviderStatus.PASSED,
+            ],
+            [
+                {
+                    verificationStatus: DocumentVerificationStatus.PENDING,
+                    dojahVerified: true,
+                    dojahExtractedFirstName: null,
+                    dojahExtractedDocNumber: null,
+                },
+                KycProviderStatus.INCONCLUSIVE,
+            ],
+            [
+                {
+                    verificationStatus: DocumentVerificationStatus.PENDING,
+                    dojahVerified: false,
+                    dojahExtractedFirstName: "Ada",
+                    dojahExtractedDocNumber: null,
+                },
+                KycProviderStatus.INCONCLUSIVE,
+            ],
+            [
+                {
+                    verificationStatus: DocumentVerificationStatus.DECLINED,
+                    dojahVerified: false,
+                    dojahExtractedFirstName: null,
+                    dojahExtractedDocNumber: null,
+                },
+                KycProviderStatus.FAILED,
+            ],
+        ])(
+            "maps persisted identity provider status",
+            (userDocument, expected) => {
+                expect(
+                    (service as any).mapIdentityProviderStatus(userDocument),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            [
+                DocumentType.INTERNATIONAL_PASSPORT,
+                KycMethod.INTERNATIONAL_PASSPORT,
+            ],
+            [DocumentType.DRIVER_LICENSE, KycMethod.DRIVER_LICENSE],
+            [DocumentType.NIN, KycMethod.NIN_SLIP],
+            ["UNKNOWN" as DocumentType, KycMethod.OTHER],
+        ])(
+            "maps document type %s to staged method",
+            (documentType, expected) => {
+                expect(
+                    (service as any).mapDocumentTypeToMethod(documentType),
+                ).toBe(expected);
+            },
+        );
+
+        it.each([
+            [KycStatus.APPROVED, KycAttemptStatus.APPROVED],
+            [KycStatus.REJECTED, KycAttemptStatus.REJECTED],
+            [KycStatus.ESCALATED, KycAttemptStatus.ESCALATED],
+            [KycStatus.PENDING, KycAttemptStatus.PENDING_REVIEW],
+        ])("maps legacy status %s", (status, expected) => {
+            expect((service as any).mapLegacyStatus(status)).toBe(expected);
+        });
+
+        it.each([
+            [
+                KycAttemptStatus.APPROVED,
+                KycProviderStatus.PASSED,
+                "APPROVED",
+                "COMPLETE",
+            ],
+            [
+                KycAttemptStatus.REJECTED,
+                KycProviderStatus.FAILED,
+                "REJECTED_HARD_STOP",
+                "RESUBMIT",
+            ],
+            [
+                KycAttemptStatus.EXPIRED,
+                KycProviderStatus.FAILED,
+                "UNDER_REVIEW",
+                "SUBMIT",
+            ],
+            [
+                KycAttemptStatus.ESCALATED,
+                KycProviderStatus.INCONCLUSIVE,
+                "UNDER_REVIEW",
+                "WAIT",
+            ],
+            [
+                KycAttemptStatus.PENDING_REVIEW,
+                KycProviderStatus.INCONCLUSIVE,
+                "UNDER_REVIEW",
+                "WAIT",
+            ],
+        ])(
+            "maps staged attempt status %s",
+            (
+                status,
+                expectedProviderStatus,
+                expectedOutcome,
+                expectedAction,
+            ) => {
+                expect(
+                    (service as any).mapAttemptStatusToProviderStatus(status),
+                ).toBe(expectedProviderStatus);
+                expect((service as any).mapAttemptToSubmitOutcome(status)).toBe(
+                    expectedOutcome,
+                );
+                expect((service as any).getNextActionType(status)).toBe(
+                    expectedAction,
+                );
+            },
+        );
+
+        it.each([
+            [null, null],
+            [
+                "Country could not be confirmed as Nigeria",
+                "DOCUMENT_COUNTRY_NOT_CONFIRMED",
+            ],
+            [
+                "Only Nigerian bank statements accepted",
+                "DOCUMENT_COUNTRY_NOT_NIGERIA",
+            ],
+            ["Document is older than 3 months", "DOCUMENT_EXPIRED"],
+            [
+                "Could not be verified as an original document",
+                "DOCUMENT_INVALID",
+            ],
+            ["Profile name mismatch", "PROFILE_NAME_MISMATCH"],
+            ["Date of birth mismatch", "PROFILE_DOB_MISMATCH"],
+            ["Unsupported document", "DOCUMENT_UNSUPPORTED"],
+            ["Bank statement", "DOCUMENT_UNSUPPORTED"],
+            ["Address mismatch", "ADDRESS_MISMATCH"],
+            ["Income requires review", "INCOME_VALIDATION_REVIEW"],
+            ["Needs manual review now!", "NEEDS_MANUAL_REVIEW_NOW"],
+            [" --- ", "REVIEW_REQUIRED"],
+        ])("maps reason text %s", (reason, expected) => {
+            expect((service as any).mapReasonCode(reason)).toBe(expected);
+        });
+
+        it.each([
+            ["APPROVE", KycProviderStatus.PASSED, "READY"],
+            ["REJECT", KycProviderStatus.FAILED, "REJECT_LIKELY"],
+            ["REVIEW", KycProviderStatus.INCONCLUSIVE, "REVIEW_LIKELY"],
+        ])(
+            "maps address preview decision %s",
+            (decision, providerStatus, outcome) => {
+                expect(
+                    (service as any).getAddressPreviewProviderStatus(decision),
+                ).toBe(providerStatus);
+                expect(
+                    (service as any).getAddressPreviewOutcome(decision),
+                ).toBe(outcome);
+            },
+        );
+
+        it.each([
+            ["REVIEW", KycProviderStatus.INCONCLUSIVE, "REVIEW_LIKELY"],
+            ["REJECT", KycProviderStatus.FAILED, "REJECT_LIKELY"],
+            ["APPROVE", KycProviderStatus.PASSED, "READY"],
+        ])(
+            "maps income preview decision %s",
+            (decision, providerStatus, outcome) => {
+                expect(
+                    (service as any).getIncomePreviewProviderStatus(decision),
+                ).toBe(providerStatus);
+                expect((service as any).getIncomePreviewOutcome(decision)).toBe(
+                    outcome,
+                );
+            },
+        );
+
+        it("builds preview warning lists for missing evidence", () => {
+            expect(
+                (service as any).buildIncomePreviewWarnings({
+                    canSubmit: false,
+                    matchedName: false,
+                    isAllowedDocumentType: false,
+                    countryConfirmed: false,
+                    isRecent: false,
+                    reason: "Missing bank logo",
+                }),
+            ).toEqual([
+                "Missing bank logo",
+                "Only bank statements are accepted for income verification.",
+                "The uploaded statement must be from a Nigerian bank.",
+                "The statement name must match your profile.",
+                "The statement must be dated within the last 3 months.",
+            ]);
+
+            expect(
+                (service as any).buildAddressPreviewWarnings({
+                    outcome: "REVIEW_LIKELY",
+                    canSubmit: true,
+                    matchedName: false,
+                    matchedAddress: false,
+                    hasDocumentDate: false,
+                }),
+            ).toEqual([
+                "This upload may still require manual review before a final decision can be made.",
+                "We could not confidently confirm your name from the uploaded document.",
+                "The upload did not clearly look like a proof-of-address document.",
+                "We could not confirm a recent document date from the upload.",
+            ]);
+
+            expect(
+                (service as any).buildIdentityPreviewWarnings(
+                    {
+                        hasPortrait: false,
+                        hasFrontSide: false,
+                        hasBackSide: false,
+                        documentType: "PASSPORT",
+                        isValid: false,
+                    },
+                    true,
+                ),
+            ).toEqual([
+                "No portrait was detected in the uploaded document.",
+                "The document front side could not be confidently detected.",
+                "The document back side could not be confidently detected.",
+                "This document can still be submitted, but reviewer intervention is likely.",
+            ]);
+        });
     });
 });
