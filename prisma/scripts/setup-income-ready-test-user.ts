@@ -321,7 +321,7 @@ async function main() {
 
     console.log("Income ready test user ready");
     console.log(`  Email: ${TEST_USER.email}`);
-    console.log(`  Password: ${TEST_USER_PASSWORD}`);
+    console.log("  Password: hidden (use LOCAL_TEST_INCOME_READY_PASSWORD or the documented local fixture value)");
     console.log(`  User ID: ${user.id}`);
     console.log("  State: GOVERNMENT_ID, IDENTITY_DOCUMENT, and ADDRESS approved; INCOME ready to submit");
 }

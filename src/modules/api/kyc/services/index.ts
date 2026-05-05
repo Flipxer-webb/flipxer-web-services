@@ -1422,15 +1422,16 @@ export class KycService {
                 user.lastName ?? "",
                 mimeType,
             );
+            const isVerified = validation.isValid && !validation.requiresManualReview;
 
             return {
                 key: "INCOME",
                 label: "Income OCR lookup",
-                status: validation.isValid ? "SUCCESS" : "FAILED",
+                status: isVerified ? "SUCCESS" : "FAILED",
                 provider: "OCR",
                 providerRef: null,
                 summary: {
-                    verified: validation.isValid,
+                    verified: isVerified,
                     confidence: validation.confidence ?? null,
                     expectedName: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null,
                     nameMatches: validation.matchedName ?? null,

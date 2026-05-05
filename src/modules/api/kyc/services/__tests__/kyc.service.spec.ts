@@ -758,7 +758,7 @@ describe("KycService", () => {
             await service.processKycDecision(
                 {
                     userId: 2,
-                    action: action as any,
+                    action,
                     verificationType: "DOCUMENT",
                     version: 3,
                     note,
@@ -2296,6 +2296,39 @@ describe("KycService", () => {
             ]);
         });
 
+        it("does not report income lookup manual review results as success", async () => {
+            jest.spyOn(service as any, "downloadLookupDocument").mockResolvedValue({
+                buffer: Buffer.from("income-doc"),
+                mimeType: "application/pdf",
+            });
+            (validateIncomeDocument as jest.Mock).mockResolvedValue({
+                isValid: true,
+                confidence: 91,
+                extractedText: "Ada Lookup salary payslip gross net pay April 2026",
+                matchedName: true,
+                requiresManualReview: true,
+                reason: "We could not confidently confirm the statement date.",
+                documentDate: null,
+                isRecent: false,
+            });
+
+            const result = await (service as any).runIncomeLookup({
+                firstName: "Ada",
+                lastName: "Lookup",
+                incomeDocumentUrl: "https://ik.imagekit.io/flipxer/income.pdf",
+            }, "2026-04-23T12:30:00.000Z");
+
+            expect(result).toEqual(expect.objectContaining({
+                key: "INCOME",
+                provider: "OCR",
+                status: "FAILED",
+                summary: expect.objectContaining({
+                    verified: false,
+                    requiresManualReview: true,
+                }),
+            }));
+        });
+
         it("runs business investigative lookups across CAC, TIN, and OCR", async () => {
             mockPrismaService.user.findUnique.mockResolvedValue({
                 id: 31,
@@ -2466,12 +2499,11 @@ describe("KycService", () => {
     describe("document lookup helpers", () => {
         it("downloads investigative documents from trusted origins", async () => {
             (httpsRequest as jest.Mock).mockImplementation((options: Record<string, any>, callback: (response: Readable) => void) => {
-                const response = Readable.from([Buffer.from([1, 2, 3])]) as Readable & {
-                    statusCode?: number;
-                    headers?: Record<string, string>;
-                };
-                response.statusCode = 200;
-                response.headers = { "content-type": "application/pdf" };
+                const response = Readable.from([Buffer.from([1, 2, 3])]);
+                Object.assign(response, {
+                    statusCode: 200,
+                    headers: { "content-type": "application/pdf" } as Record<string, string>,
+                });
 
                 const request = {
                     on: jest.fn().mockReturnThis(),
