@@ -51,7 +51,12 @@ describe("ReportsService", () => {
                 id: 1,
                 createdAt: new Date("2025-06-01T00:00:00Z"),
                 userId: 10,
-                user: { id: 10, email: "u@test.com", firstName: "A", lastName: "B" },
+                user: {
+                    id: 10,
+                    email: "u@test.com",
+                    firstName: "A",
+                    lastName: "B",
+                },
                 orderCategory: "BUY",
                 fromCurrency: "BTC",
                 toCurrency: "NGN",
@@ -93,7 +98,7 @@ describe("ReportsService", () => {
             expect(result.rowCount).toBe(0);
         });
 
-        it("should generate a user report", async () => {
+        it("should generate a user report with aligned verification fields", async () => {
             const mockUser = {
                 id: 1,
                 identifier: "USR-001",
@@ -107,8 +112,18 @@ describe("ReportsService", () => {
                 status: "ACTIVE",
                 isEmailVerified: true,
                 isPhoneVerified: true,
-                isBvnVerified: false,
                 isDocumentVerified: false,
+                bvn: null,
+                nin: null,
+                kycStageAttempts: [
+                    {
+                        journeyType: "INDIVIDUAL",
+                        stage: "GOVERNMENT_ID",
+                        method: "NIN",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
                 createdAt: new Date("2025-01-01"),
                 lastLogin: new Date("2025-06-01"),
                 loginCount: 5,
@@ -118,12 +133,20 @@ describe("ReportsService", () => {
 
             const result = await service.generateReport({
                 type: "users",
-                format: "csv",
+                format: "json",
                 filters: {},
             });
 
             expect(result.filename).toContain("users_");
+            expect(result.filename).toMatch(/\.json$/);
             expect(result.rowCount).toBe(1);
+            const data = JSON.parse(result.data);
+            expect(data[0]).toMatchObject({
+                emailVerified: true,
+                phoneVerified: true,
+                governmentIdVerified: true,
+                documentVerified: false,
+            });
         });
 
         it("should generate a user report with filters", async () => {
@@ -183,7 +206,13 @@ describe("ReportsService", () => {
             const orders = [
                 {
                     userId: 1,
-                    user: { id: 1, email: "a@t.com", firstName: "A", lastName: "B", userType: "INDIVIDUAL" },
+                    user: {
+                        id: 1,
+                        email: "a@t.com",
+                        firstName: "A",
+                        lastName: "B",
+                        userType: "INDIVIDUAL",
+                    },
                     orderCategory: "BUY",
                     amount: 100,
                     fromAmount: null,
@@ -192,7 +221,13 @@ describe("ReportsService", () => {
                 },
                 {
                     userId: 1,
-                    user: { id: 1, email: "a@t.com", firstName: "A", lastName: "B", userType: "INDIVIDUAL" },
+                    user: {
+                        id: 1,
+                        email: "a@t.com",
+                        firstName: "A",
+                        lastName: "B",
+                        userType: "INDIVIDUAL",
+                    },
                     orderCategory: "SELL",
                     amount: 200,
                     fromAmount: null,
@@ -205,7 +240,10 @@ describe("ReportsService", () => {
             const result = await service.generateReport({
                 type: "tax",
                 format: "json",
-                filters: { startDate: new Date("2025-01-01"), endDate: new Date("2025-12-31") },
+                filters: {
+                    startDate: new Date("2025-01-01"),
+                    endDate: new Date("2025-12-31"),
+                },
             });
 
             expect(result.filename).toContain("tax_");
@@ -217,7 +255,11 @@ describe("ReportsService", () => {
 
         it("should throw for unknown report type", async () => {
             await expect(
-                service.generateReport({ type: "unknown" as any, format: "csv", filters: {} })
+                service.generateReport({
+                    type: "unknown" as any,
+                    format: "csv",
+                    filters: {},
+                }),
             ).rejects.toThrow("Unknown report type");
         });
     });
@@ -253,7 +295,12 @@ describe("ReportsService", () => {
                 id: 1,
                 createdAt: new Date("2025-06-01T00:00:00Z"),
                 userId: 10,
-                user: { id: 10, email: "u@test.com", firstName: 'John "Jr"', lastName: "Doe, III" },
+                user: {
+                    id: 10,
+                    email: "u@test.com",
+                    firstName: 'John "Jr"',
+                    lastName: "Doe, III",
+                },
                 orderCategory: "BUY",
                 fromCurrency: "BTC",
                 toCurrency: "NGN",
@@ -295,7 +342,12 @@ describe("ReportsService", () => {
                 id: 1,
                 createdAt: new Date("2025-06-01T00:00:00Z"),
                 userId: 10,
-                user: { id: 10, email: "u@t.com", firstName: "A", lastName: "B" },
+                user: {
+                    id: 10,
+                    email: "u@t.com",
+                    firstName: "A",
+                    lastName: "B",
+                },
                 orderCategory: "BUY",
                 fromCurrency: "BTC",
                 toCurrency: "NGN",
@@ -330,7 +382,12 @@ describe("ReportsService", () => {
                     id: 1,
                     createdAt: new Date("2025-06-01"),
                     userId: 1,
-                    user: { id: 1, email: "a@t.com", firstName: "A", lastName: "B" },
+                    user: {
+                        id: 1,
+                        email: "a@t.com",
+                        firstName: "A",
+                        lastName: "B",
+                    },
                     orderCategory: "BUY",
                     fromCurrency: "BTC",
                     toCurrency: "NGN",
@@ -373,7 +430,11 @@ describe("ReportsService", () => {
 
         it("should throw for unknown preview type", async () => {
             await expect(
-                service.previewReport({ type: "unknown" as any, format: "csv", filters: {} })
+                service.previewReport({
+                    type: "unknown" as any,
+                    format: "csv",
+                    filters: {},
+                }),
             ).rejects.toThrow("Unknown report type");
         });
 

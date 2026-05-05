@@ -12,7 +12,10 @@ const quidaxService: Provider = {
     provide: TradingInjectionToken.QUIDAX,
     inject: [QuidaxGlobalLimiterService],
     useFactory(quidaxGlobalLimiter: QuidaxGlobalLimiterService) {
-        const tradingFactory = new TradingFactory(tradingConfig, quidaxGlobalLimiter);
+        const tradingFactory = new TradingFactory(
+            tradingConfig,
+            quidaxGlobalLimiter,
+        );
         return tradingFactory.buildQuidaxService();
     },
 };
@@ -25,7 +28,10 @@ const tradingProvider: Provider = {
     provide: TradingInjectionToken.TRADING_PROVIDER,
     inject: [QuidaxGlobalLimiterService],
     useFactory(quidaxGlobalLimiter: QuidaxGlobalLimiterService) {
-        const tradingFactory = new TradingFactory(tradingConfig, quidaxGlobalLimiter);
+        const tradingFactory = new TradingFactory(
+            tradingConfig,
+            quidaxGlobalLimiter,
+        );
         return tradingFactory.buildProvider({ provider: "quidax" });
     },
 };

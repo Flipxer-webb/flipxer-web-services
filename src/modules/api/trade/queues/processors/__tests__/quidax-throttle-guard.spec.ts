@@ -1,5 +1,8 @@
 import { Logger } from "@nestjs/common";
-import { isQuidaxThrottlingError, withQuidaxThrottleGuard } from "../quidax-throttle-guard";
+import {
+    isQuidaxThrottlingError,
+    withQuidaxThrottleGuard,
+} from "../quidax-throttle-guard";
 import { QuidaxTooManyRequestError } from "@/libs/quidax";
 import { QuidaxException } from "@/modules/factory/trading/providers/quidax/errors";
 
@@ -12,19 +15,29 @@ describe("isQuidaxThrottlingError", () => {
     });
 
     it("detects QuidaxTooManyRequestError instances", () => {
-        expect(isQuidaxThrottlingError(new QuidaxTooManyRequestError("rate limit"))).toBe(true);
+        expect(
+            isQuidaxThrottlingError(
+                new QuidaxTooManyRequestError("rate limit"),
+            ),
+        ).toBe(true);
     });
 
     it("detects QuidaxException with status 429", () => {
-        expect(isQuidaxThrottlingError(new QuidaxException("too many", 429))).toBe(true);
+        expect(
+            isQuidaxThrottlingError(new QuidaxException("too many", 429)),
+        ).toBe(true);
     });
 
     it("detects QuidaxException with status 444", () => {
-        expect(isQuidaxThrottlingError(new QuidaxException("throttled", 444))).toBe(true);
+        expect(
+            isQuidaxThrottlingError(new QuidaxException("throttled", 444)),
+        ).toBe(true);
     });
 
     it("returns false for QuidaxException with non-throttle status", () => {
-        expect(isQuidaxThrottlingError(new QuidaxException("boom", 500))).toBe(false);
+        expect(isQuidaxThrottlingError(new QuidaxException("boom", 500))).toBe(
+            false,
+        );
     });
 
     it("falls back to plain object status field", () => {
@@ -65,7 +78,11 @@ describe("withQuidaxThrottleGuard", () => {
 
     it("returns the handler value on success", async () => {
         const handler = jest.fn().mockResolvedValue("ok");
-        const result = await withQuidaxThrottleGuard(queue as never, logger, handler);
+        const result = await withQuidaxThrottleGuard(
+            queue as never,
+            logger,
+            handler,
+        );
 
         expect(result).toBe("ok");
         expect(queue.pause).not.toHaveBeenCalled();
@@ -123,7 +140,9 @@ describe("withQuidaxThrottleGuard", () => {
             withQuidaxThrottleGuard(queue as never, logger, handler, 5),
         ).rejects.toBe(err);
 
-        const pauseWarnings = (logger.warn as jest.Mock).mock.calls.map(([message]) => String(message));
+        const pauseWarnings = (logger.warn as jest.Mock).mock.calls.map(
+            ([message]) => String(message),
+        );
         expect(pauseWarnings[0]).toContain("for 5ms after 1 consecutive");
         expect(pauseWarnings[1]).toContain("for 10ms after 2 consecutive");
     });

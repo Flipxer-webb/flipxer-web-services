@@ -4,7 +4,9 @@ import { HttpException } from "@nestjs/common";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     DuplicateUserException: class extends Error {},
@@ -12,7 +14,9 @@ jest.mock("@/modules/api/user", () => ({
 }));
 
 jest.mock("@/modules/api/trade/gateway/v1", () => ({
-    WsGateway: class { server = { to: jest.fn() } },
+    WsGateway: class {
+        server = { to: jest.fn() };
+    },
 }));
 
 jest.mock("@/config", () => ({
@@ -22,6 +26,8 @@ jest.mock("@/config", () => ({
     },
     emailTemplateConfig: {
         document_pending_review: "tpl-pending-review",
+        document_approved: "tpl-approved",
+        document_rejected: "tpl-rejected",
     },
     COMPANY_NAME: "Flipxer",
     mailConfig: { senderMail: "noreply@test.com" },
@@ -64,11 +70,30 @@ import {
     validateAddressDocument,
     validateIncomeDocument,
 } from "@/libs/ocr";
+import {
+    KycAttemptStatus,
+    KycDecisionMode,
+    KycMethod,
+    KycProviderName,
+    KycProviderStatus,
+    KycStage,
+} from "@prisma/client";
 
 function makePrisma() {
     return {
-        user: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
-        kycVerification: { create: jest.fn() },
+        user: {
+            findUnique: jest.fn(),
+            findFirst: jest.fn(),
+            update: jest.fn(),
+        },
+        kycStageAttempt: {
+            findFirst: jest.fn(),
+            findMany: jest.fn(),
+            aggregate: jest.fn(),
+            updateMany: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+        },
     };
 }
 
@@ -85,6 +110,10 @@ describe("TierVerificationService", () => {
     let mockNotificationDispatcher: any;
     let mockUploadService: any;
     let mockWsGateway: any;
+    let mockAuthService: {
+        analyzeAddressDocumentSignals: jest.Mock;
+        analyzeIncomeDocumentSignals: jest.Mock;
+    };
     let mockEmailService: {
         sendEmail: jest.Mock;
         sendMailWithTemplate: jest.Mock;
@@ -102,12 +131,11 @@ describe("TierVerificationService", () => {
         email: "test@test.com",
         firstName: "John",
         lastName: "Doe",
+        tier: 1,
         residentialAddress: "10 Main Street Lagos",
+        addressDocumentUrl: null,
+        incomeDocumentUrl: null,
         isDocumentVerified: true,
-        isAddressVerified: false,
-        isIncomeVerified: false,
-        isBvnVerified: false,
-        isNinVerified: false,
     } as any;
 
     beforeEach(async () => {
@@ -120,10 +148,36 @@ describe("TierVerificationService", () => {
             sendEmail: jest.fn(),
             sendMailWithTemplate: jest.fn().mockResolvedValue(undefined),
         };
-        mockWsGateway = { server: { to: jest.fn() }, notifyProfileUpdate: jest.fn() };
+        mockWsGateway = {
+            server: { to: jest.fn() },
+            notifyProfileUpdate: jest.fn(),
+        };
+        mockAuthService = {
+            analyzeAddressDocumentSignals: jest.fn().mockResolvedValue(null),
+            analyzeIncomeDocumentSignals: jest.fn().mockResolvedValue(null),
+        };
         prisma.user.findFirst.mockResolvedValue(null);
+        prisma.user.findUnique.mockResolvedValue({
+            kycStageAttempts: [
+                {
+                    stage: "IDENTITY_DOCUMENT",
+                    status: "APPROVED",
+                    isCurrent: true,
+                },
+            ],
+        });
+        prisma.kycStageAttempt.aggregate.mockResolvedValue({
+            _max: { attemptNo: 0 },
+        });
+        prisma.kycStageAttempt.findMany.mockResolvedValue([]);
+        prisma.kycStageAttempt.updateMany.mockResolvedValue({ count: 0 });
+        prisma.kycStageAttempt.create.mockResolvedValue({ id: 1 });
+        prisma.kycStageAttempt.findFirst.mockResolvedValue({ id: 1 });
+        prisma.kycStageAttempt.update.mockResolvedValue({ id: 1 });
         mockUploadService = {
-            upload: jest.fn().mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
+            upload: jest
+                .fn()
+                .mockResolvedValue({ url: "https://cdn.test.com/doc.png" }),
             uploadImage: jest
                 .fn()
                 .mockResolvedValue({ url: "https://cdn.test.com/doc.pdf" }),
@@ -143,8 +197,12 @@ describe("TierVerificationService", () => {
                 { provide: UploadFactory, useValue: mockUploadFactory },
                 { provide: TierService, useValue: mockTierService },
                 { provide: EmailService, useValue: mockEmailService },
-                { provide: NotificationDispatcher, useValue: mockNotificationDispatcher },
+                {
+                    provide: NotificationDispatcher,
+                    useValue: mockNotificationDispatcher,
+                },
                 { provide: WsGateway, useValue: mockWsGateway },
+                { provide: "AUTH_SERVICE", useValue: mockAuthService },
             ],
         }).compile();
 
@@ -155,7 +213,26 @@ describe("TierVerificationService", () => {
 
     describe("verifyAddress", () => {
         it("should return early if address is already verified", async () => {
-            const verifiedUser = { ...mockUser, isAddressVerified: true };
+            const verifiedUser = {
+                ...mockUser,
+                tier: 2,
+                addressDocumentUrl: "https://cdn.test.com/address-proof.png",
+            };
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
+
             const result = await service.verifyAddress(verifiedUser, mockFile);
             expect(result.message).toBe("Address is already verified");
         });
@@ -171,26 +248,62 @@ describe("TierVerificationService", () => {
             ).rejects.toThrow(HttpException);
         });
 
-        it("should throw if address verification is already pending", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
-
-            await expect(
-                service.verifyAddress(
-                    { ...mockUser, addressVerificationStatus: "PENDING" },
-                    mockFile,
-                ),
-            ).rejects.toThrow("Address verification is pending review");
-        });
-
-        it("should reject address verification until document verification is complete", async () => {
+        it("returns a pending response when address verification is already pending", async () => {
             (validateDocumentFile as jest.Mock).mockClear();
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "PENDING_REVIEW",
+                        isCurrent: true,
+                    },
+                ],
+            });
 
             await expect(
                 service.verifyAddress(
                     {
                         ...mockUser,
-                        isDocumentVerified: false,
-                        documentVerificationStatus: null,
+                        addressDocumentUrl:
+                            "https://cdn.test.com/address-pending.png",
+                    },
+                    mockFile,
+                ),
+            ).resolves.toEqual(
+                expect.objectContaining({
+                    message: "Address verification is pending review",
+                    data: expect.objectContaining({
+                        status: "PENDING",
+                        reason: null,
+                    }),
+                }),
+            );
+
+            expect(validateDocumentFile).not.toHaveBeenCalled();
+            expect(prisma.kycStageAttempt.create).not.toHaveBeenCalled();
+        });
+
+        it("should reject address verification until document verification is complete", async () => {
+            (validateDocumentFile as jest.Mock).mockClear();
+            prisma.user.findUnique.mockResolvedValue({
+                tier: mockUser.tier,
+                addressDocumentUrl: null,
+                incomeDocumentUrl: null,
+                kycStageAttempts: [],
+            });
+
+            await expect(
+                service.verifyAddress(
+                    {
+                        ...mockUser,
                     },
                     mockFile,
                 ),
@@ -202,29 +315,33 @@ describe("TierVerificationService", () => {
         });
 
         it("should flag for manual review when OCR requires it", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.4,
                 matchedName: false,
                 matchedAddress: true,
                 matchedResidentialAddress: false,
                 requiresManualReview: true,
+                decision: "REVIEW",
                 reason: "Low confidence",
             });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toContain("reviewed by our team");
+            expect(result.message).toBe(
+                "Address verification is pending review",
+            );
             expect(result.data.status).toBe("PENDING");
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
-            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
-                        providerRawResponse: expect.objectContaining({
-                            matchedResidentialAddress: false,
-                            residentialAddressPresent: true,
-                        }),
+                        stage: KycStage.ADDRESS,
+                        status: KycAttemptStatus.PENDING_REVIEW,
+                        providerName: KycProviderName.OCR,
                     }),
                 }),
             );
@@ -239,37 +356,198 @@ describe("TierVerificationService", () => {
             );
         });
 
-        it("should still queue address for manual review when OCR passes", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+        it("routes clean address verification passes to manual review", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+            (validateAddressDocument as jest.Mock).mockResolvedValue({
+                confidence: 0.95,
+                matchedName: true,
+                matchedAddress: true,
+                matchedResidentialAddress: true,
+                countryConfirmed: true,
+                requiresManualReview: false,
+                decision: "APPROVE",
+            });
+
+            const result = await service.verifyAddress(mockUser, mockFile);
+            expect(result.message).toBe(
+                "Address verification is pending review",
+            );
+            expect(result.data.status).toBe("PENDING");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        stage: KycStage.ADDRESS,
+                        status: KycAttemptStatus.PENDING_REVIEW,
+                        providerStatus: KycProviderStatus.PASSED,
+                        decisionMode: KycDecisionMode.MANUAL,
+                    }),
+                }),
+            );
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: "Document Submitted",
+                    body: "Your address document has been submitted for review. We'll notify you once it's processed.",
+                }),
+            );
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-pending-review",
+                    merge_info: expect.objectContaining({
+                        name: "John",
+                        document_type: "Address Document",
+                    }),
+                }),
+            );
+            expect(mockWsGateway.notifyProfileUpdate).not.toHaveBeenCalled();
+        });
+
+        it("passes Dojah provider signals into address submit validation", async () => {
+            const providerSignals = {
+                documentType: "Utility Bill",
+                nameMatches: true,
+                documentDate: "2026-04-20",
+            };
+            mockAuthService.analyzeAddressDocumentSignals.mockResolvedValue(
+                providerSignals,
+            );
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0.95,
                 matchedName: true,
                 matchedAddress: true,
                 matchedResidentialAddress: true,
                 requiresManualReview: false,
+                decision: "APPROVE",
             });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
+
+            await service.verifyAddress(mockUser, mockFile);
+
+            expect(
+                mockAuthService.analyzeAddressDocumentSignals,
+            ).toHaveBeenCalledWith(mockUser, mockFile);
+            expect(validateAddressDocument).toHaveBeenCalledWith(
+                mockFile.buffer,
+                "John",
+                "Doe",
+                "10 Main Street Lagos",
+                "image/png",
+                providerSignals,
+            );
+        });
+
+        it("keeps the persisted Dojah preview payload on address submit-from-preview", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+
+            await service.verifyAddressFromPreview(
+                mockUser,
+                mockFile,
+                KycMethod.UTILITY_BILL,
+                {
+                    outcome: "REVIEW_LIKELY",
+                    providerStatus: KycProviderStatus.INCONCLUSIVE,
+                    comparisonSummary: {
+                        decision: "REVIEW",
+                        matchedName: true,
+                        matchedAddress: true,
+                        matchedResidentialAddress: true,
+                    },
+                    providerInteraction: {
+                        provider: "DOJAH",
+                        request: {
+                            inputType: "base64",
+                            imageFrontSide: "address-preview-base64",
+                        },
+                        response: {
+                            parsed: {
+                                documentType: "utility bill",
+                            },
+                        },
+                    },
+                },
+            );
+
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reasonDetails: expect.objectContaining({
+                            providerInteraction: expect.objectContaining({
+                                provider: "DOJAH",
+                                request: expect.objectContaining({
+                                    imageFrontSide: "address-preview-base64",
+                                }),
+                            }),
+                        }),
+                    }),
+                }),
+            );
+        });
+
+        it("should auto-reject a clear high-confidence address mismatch", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+            (validateAddressDocument as jest.Mock).mockResolvedValue({
+                confidence: 0.93,
+                matchedName: false,
+                matchedAddress: true,
+                matchedResidentialAddress: false,
+                requiresManualReview: false,
+                decision: "REJECT",
+                reason: "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+            });
 
             const result = await service.verifyAddress(mockUser, mockFile);
-            expect(result.message).toContain("reviewed by our team");
-            expect(result.data.status).toBe("PENDING");
-            expect(prisma.user.update).toHaveBeenCalledWith(
+
+            expect(result.message).toBe(
+                "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+            );
+            expect(result.data.status).toBe("REJECTED");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
-                        addressVerificationStatus: "PENDING",
+                        stage: KycStage.ADDRESS,
+                        status: KycAttemptStatus.REJECTED,
+                        providerStatus: KycProviderStatus.FAILED,
+                        decisionMode: KycDecisionMode.AUTO,
+                        reasonMessage:
+                            "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
                     }),
                 }),
             );
-            expect(prisma.kycVerification.create).toHaveBeenCalledWith(
+            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(
+                mockUser.id,
+            );
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({
-                        verificationType: "ADDRESS",
-                        status: "PENDING",
+                    title: "Address Verification Rejected",
+                    body: "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+                    enablePush: true,
+                }),
+            );
+            expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(
+                mockUser.id,
+            );
+            expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    template_key: "tpl-rejected",
+                    merge_info: expect.objectContaining({
+                        first_name: "John",
+                        document_type: "Address",
+                        rejection_reason:
+                            "The submitted address document does not carry your name. Please upload a recent proof of address that shows your full name.",
+                        status: "Rejected",
                     }),
                 }),
             );
-            expect(mockTierService.syncTierAndCache).toHaveBeenCalledWith(mockUser.id);
         });
 
         it("uploads PDF address documents without image compression", async () => {
@@ -279,17 +557,18 @@ describe("TierVerificationService", () => {
                 originalname: "utility-bill.pdf",
             } as Express.Multer.File;
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockResolvedValue({
                 confidence: 0,
                 matchedName: false,
                 matchedAddress: false,
                 matchedResidentialAddress: null,
                 requiresManualReview: true,
+                decision: "REVIEW",
                 reason: "Could not extract text from document. Please upload a clearer image.",
             });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
 
             const result = await service.verifyAddress(mockUser, pdfFile);
 
@@ -313,7 +592,9 @@ describe("TierVerificationService", () => {
                 },
             );
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             mockUploadService.uploadCompressedImage.mockRejectedValue(
                 compressionError,
             );
@@ -325,7 +606,7 @@ describe("TierVerificationService", () => {
             );
 
             expect(prisma.user.update).not.toHaveBeenCalled();
-            expect(prisma.kycVerification.create).not.toHaveBeenCalled();
+            expect(prisma.kycStageAttempt.create).not.toHaveBeenCalled();
         });
 
         it("maps unreadable PDF OCR failures to a bad-request error", async () => {
@@ -335,7 +616,9 @@ describe("TierVerificationService", () => {
                 originalname: "utility-bill.pdf",
             } as Express.Multer.File;
 
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
             (validateAddressDocument as jest.Mock).mockRejectedValue(
                 new OcrDocumentPreparationError(
                     "Unsupported or unreadable PDF document. Please upload a valid PDF or image file.",
@@ -349,20 +632,45 @@ describe("TierVerificationService", () => {
             );
 
             expect(prisma.user.update).not.toHaveBeenCalled();
-            expect(prisma.kycVerification.create).not.toHaveBeenCalled();
+            expect(prisma.kycStageAttempt.create).not.toHaveBeenCalled();
         });
     });
 
     // ==================== Income Verification (File Upload) ====================
 
     describe("verifyIncome", () => {
-        const eligibleIncomeUser = { ...mockUser, isAddressVerified: true };
+        const eligibleIncomeUser = {
+            ...mockUser,
+            tier: 2,
+            addressDocumentUrl: "https://cdn.test.com/address-proof.png",
+        };
 
         it("should return early if income is already verified", async () => {
             const verifiedUser = {
                 ...eligibleIncomeUser,
-                isIncomeVerified: true,
+                tier: 3,
+                incomeDocumentUrl: "https://cdn.test.com/income-proof.png",
             };
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "INCOME",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
+
             const result = await service.verifyIncome(verifiedUser, mockFile);
             expect(result.message).toBe("Income is already verified");
         });
@@ -385,8 +693,7 @@ describe("TierVerificationService", () => {
                 service.verifyIncome(
                     {
                         ...mockUser,
-                        isAddressVerified: false,
-                        addressVerificationStatus: null,
+                        addressDocumentUrl: null,
                     },
                     mockFile,
                 ),
@@ -397,49 +704,262 @@ describe("TierVerificationService", () => {
             expect(validateDocumentFile).not.toHaveBeenCalled();
         });
 
-        it("should flag for manual review", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
-            (validateIncomeDocument as jest.Mock).mockResolvedValue({
-                confidence: 0.3,
-                matchedName: false,
-                requiresManualReview: true,
-                reason: "Name mismatch",
+        it("should queue manual review for a valid Nigerian bank statement", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
             });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
+            (validateIncomeDocument as jest.Mock).mockResolvedValue({
+                confidence: 0.93,
+                matchedName: true,
+                incomeDocumentType: "BANK_STATEMENT",
+                isAllowedDocumentType: true,
+                countryConfirmed: true,
+                isRecent: true,
+                requiresManualReview: true,
+                decision: "REVIEW",
+                reason: "Your bank statement passed automated checks and will be reviewed by our team.",
+            });
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
 
             const result = await service.verifyIncome(
                 eligibleIncomeUser,
                 mockFile,
             );
             expect(result.data.status).toBe("PENDING");
+            expect(result.message).toBe(
+                "Your bank statement passed automated checks and is pending manual review.",
+            );
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        stage: KycStage.INCOME,
+                        status: KycAttemptStatus.PENDING_REVIEW,
+                    }),
+                }),
+            );
             expect(mockEmailService.sendMailWithTemplate).toHaveBeenCalledWith(
                 expect.objectContaining({
                     template_key: "tpl-pending-review",
                     merge_info: expect.objectContaining({
                         name: "John",
-                        document_type: "Income Document",
+                        document_type: "Bank Statement",
                     }),
                 }),
             );
         });
 
-        it("should auto-approve when OCR passes", async () => {
-            (validateDocumentFile as jest.Mock).mockReturnValue({ isValid: true });
-            (validateIncomeDocument as jest.Mock).mockResolvedValue({
-                confidence: 0.9,
-                matchedName: true,
-                requiresManualReview: false,
+        it("passes Dojah provider signals into income submit validation and records provider rejections", async () => {
+            const providerSignals = {
+                isValid: false,
+                reason: "Printed photocopy detected",
+                documentType: "Bank Statement",
+                nameMatches: true,
+                documentDate: "2026-04-20",
+                country: "Nigeria",
+                countryCode: "NG",
+            };
+            mockAuthService.analyzeIncomeDocumentSignals.mockResolvedValue(
+                providerSignals,
+            );
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
             });
-            prisma.user.update.mockResolvedValue({});
-            prisma.kycVerification.create.mockResolvedValue({});
+            (validateIncomeDocument as jest.Mock).mockResolvedValue({
+                confidence: 0.93,
+                matchedName: true,
+                incomeDocumentType: "BANK_STATEMENT",
+                isAllowedDocumentType: true,
+                countryConfirmed: true,
+                isRecent: true,
+                providerVerified: false,
+                providerReason: "Printed photocopy detected",
+                providerDocumentType: "Bank Statement",
+                providerNameMatches: true,
+                requiresManualReview: false,
+                decision: "REJECT",
+                reason: "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
+            });
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
 
             const result = await service.verifyIncome(
                 eligibleIncomeUser,
                 mockFile,
             );
-            expect(result.message).toBe("Income verified successfully");
-            expect(result.data.status).toBe("VERIFIED");
+
+            expect(
+                mockAuthService.analyzeIncomeDocumentSignals,
+            ).toHaveBeenCalledWith(eligibleIncomeUser, mockFile);
+            expect(validateIncomeDocument).toHaveBeenCalledWith(
+                mockFile.buffer,
+                "John",
+                "Doe",
+                "image/png",
+                providerSignals,
+            );
+            expect(result.message).toBe(
+                "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
+            );
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        stage: KycStage.INCOME,
+                        status: KycAttemptStatus.REJECTED,
+                        comparisonSummary: expect.objectContaining({
+                            providerVerified: false,
+                            providerReason: "Printed photocopy detected",
+                            providerDocumentType: "Bank Statement",
+                            providerNameMatches: true,
+                        }),
+                        reasonDetails: expect.objectContaining({
+                            providerVerified: false,
+                            providerReason: "Printed photocopy detected",
+                        }),
+                    }),
+                }),
+            );
+        });
+
+        it("keeps the persisted Dojah preview payload on income submit-from-preview", async () => {
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+
+            await service.verifyIncomeFromPreview(
+                eligibleIncomeUser,
+                mockFile,
+                KycMethod.BANK_STATEMENT,
+                {
+                    outcome: "REVIEW_LIKELY",
+                    providerStatus: KycProviderStatus.INCONCLUSIVE,
+                    comparisonSummary: {
+                        decision: "REVIEW",
+                        matchedName: true,
+                        isAllowedDocumentType: true,
+                    },
+                    providerInteraction: {
+                        provider: "DOJAH",
+                        request: {
+                            inputType: "base64",
+                            imageFrontSide: "income-preview-base64",
+                        },
+                        response: {
+                            parsed: {
+                                documentType: "bank statement",
+                            },
+                        },
+                    },
+                },
+            );
+
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reasonDetails: expect.objectContaining({
+                            providerInteraction: expect.objectContaining({
+                                provider: "DOJAH",
+                                request: expect.objectContaining({
+                                    imageFrontSide: "income-preview-base64",
+                                }),
+                            }),
+                        }),
+                    }),
+                }),
+            );
+        });
+
+        it("should auto-reject when the bank statement fails the automated rules", async () => {
+            (validateDocumentFile as jest.Mock).mockReturnValue({
+                isValid: true,
+            });
+            (validateIncomeDocument as jest.Mock).mockResolvedValue({
+                confidence: 0.9,
+                matchedName: false,
+                incomeDocumentType: "BANK_STATEMENT",
+                isAllowedDocumentType: true,
+                countryConfirmed: true,
+                isRecent: true,
+                requiresManualReview: false,
+                decision: "REJECT",
+                reason: "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
+            });
+            prisma.user.findUnique.mockResolvedValue({
+                kycStageAttempts: [
+                    {
+                        stage: "IDENTITY_DOCUMENT",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                    {
+                        stage: "ADDRESS",
+                        status: "APPROVED",
+                        isCurrent: true,
+                    },
+                ],
+            });
+
+            const result = await service.verifyIncome(
+                eligibleIncomeUser,
+                mockFile,
+            );
+            expect(result.message).toBe(
+                "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
+            );
+            expect(result.data.status).toBe("REJECTED");
+            expect(prisma.kycStageAttempt.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        stage: KycStage.INCOME,
+                        status: KycAttemptStatus.REJECTED,
+                        decisionMode: KycDecisionMode.AUTO,
+                    }),
+                }),
+            );
+            expect(mockNotificationDispatcher.notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: "Income Verification Rejected",
+                    body: "The submitted bank statement does not match the name on your profile. Please upload your own recent bank statement.",
+                }),
+            );
         });
     });
 
@@ -463,7 +983,9 @@ describe("TierVerificationService", () => {
         it("should throw if account password is wrong", async () => {
             const bcrypt = require("bcryptjs");
             bcrypt.compare.mockResolvedValue(false);
-            prisma.user.findUnique.mockResolvedValue({ password: createTestSecret() });
+            prisma.user.findUnique.mockResolvedValue({
+                password: createTestSecret(),
+            });
             const tradingPassword = createTestSecret();
             const accountPassword = createTestSecret();
 
@@ -471,7 +993,7 @@ describe("TierVerificationService", () => {
                 service.createTradingPassword(mockUser, {
                     tradingPassword,
                     accountPassword,
-                } as any)
+                } as any),
             ).rejects.toThrow();
         });
     });
@@ -485,7 +1007,9 @@ describe("TierVerificationService", () => {
         });
 
         it("hasTradingPassword returns true when password exists", async () => {
-            prisma.user.findUnique.mockResolvedValue({ tradingPassword: createTestSecret() });
+            prisma.user.findUnique.mockResolvedValue({
+                tradingPassword: createTestSecret(),
+            });
 
             const result = await service.hasTradingPassword(mockUser);
             expect(result.data.hasTradingPassword).toBe(true);
@@ -494,13 +1018,20 @@ describe("TierVerificationService", () => {
         it("getVerificationStatus throws when user is not found", async () => {
             prisma.user.findUnique.mockResolvedValue(null);
 
-            await expect(service.getVerificationStatus(mockUser)).rejects.toThrow("User not found");
+            await expect(
+                service.getVerificationStatus(mockUser),
+            ).rejects.toThrow("User not found");
         });
 
         it("sendReviewNotification returns early when user has no email", async () => {
-            prisma.user.findUnique.mockResolvedValue({ email: null, firstName: "NoMail" });
+            prisma.user.findUnique.mockResolvedValue({
+                email: null,
+                firstName: "NoMail",
+            });
 
-            await expect(service.sendReviewNotification(1, "address", true)).resolves.toBeUndefined();
+            await expect(
+                service.sendReviewNotification(1, "address", true),
+            ).resolves.toBeUndefined();
         });
 
         it("approveDocument handles business documents flow", async () => {
@@ -515,7 +1046,7 @@ describe("TierVerificationService", () => {
                         businessDocumentVerificationStatus: expect.any(String),
                         isDocumentVerified: true,
                     }),
-                })
+                }),
             );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
             expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);
@@ -524,7 +1055,11 @@ describe("TierVerificationService", () => {
         it("rejectDocument handles business documents flow", async () => {
             prisma.user.update.mockResolvedValue({});
 
-            const result = await service.rejectDocument(1, "business", "invalid docs");
+            const result = await service.rejectDocument(
+                1,
+                "business",
+                "invalid docs",
+            );
 
             expect(result.message).toContain("rejected");
             expect(prisma.user.update).toHaveBeenCalledWith(
@@ -533,7 +1068,7 @@ describe("TierVerificationService", () => {
                         businessDocumentVerificationStatus: expect.any(String),
                         businessDocumentsUploaded: false,
                     }),
-                })
+                }),
             );
             expect(mockNotificationDispatcher.notify).toHaveBeenCalled();
             expect(mockWsGateway.notifyProfileUpdate).toHaveBeenCalledWith(1);

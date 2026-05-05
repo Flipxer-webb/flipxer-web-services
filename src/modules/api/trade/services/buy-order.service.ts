@@ -1,4 +1,9 @@
-import { BadRequestException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import {
+    BadRequestException,
+    HttpStatus,
+    Injectable,
+    Logger,
+} from "@nestjs/common";
 import { PrismaService } from "@/modules/core/prisma/services";
 import {
     getBankProviderForPaymentMethod,
@@ -24,7 +29,6 @@ import {
     User,
 } from "@prisma/client";
 import {
-
     IncompleteAccountSetupException,
     WalletAddressNotFoundException,
 } from "../errors";
@@ -68,8 +72,8 @@ export class BuyOrderService {
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly distributedLockService: DistributedLockService,
-        private readonly transactionService: TransactionService
-    ) { }
+        private readonly transactionService: TransactionService,
+    ) {}
 
     private async releaseReservedBuyLimit(payment: {
         userId: number;
@@ -101,25 +105,35 @@ export class BuyOrderService {
         return [...this.getSupportedBuyPaymentMethods()];
     }
 
-    private resolveBuyPaymentMethod(paymentMethod?: PaymentMethod | null): PaymentMethod {
+    private resolveBuyPaymentMethod(
+        paymentMethod?: PaymentMethod | null,
+    ): PaymentMethod {
         if (!paymentMethod) {
             return getPaymentMethodForBankProvider(buyPaymentProvider);
         }
 
         if (!this.getSupportedBuyPaymentMethods().includes(paymentMethod)) {
-            throw new BadRequestException("Unsupported buy payment method selected");
+            throw new BadRequestException(
+                "Unsupported buy payment method selected",
+            );
         }
 
         return paymentMethod;
     }
 
-    private getBuyPaymentProvider(paymentMethod?: PaymentMethod | null): InboundPaymentProvider {
-        return getBankProviderForPaymentMethod(
-            this.resolveBuyPaymentMethod(paymentMethod),
-        ) || buyPaymentProvider;
+    private getBuyPaymentProvider(
+        paymentMethod?: PaymentMethod | null,
+    ): InboundPaymentProvider {
+        return (
+            getBankProviderForPaymentMethod(
+                this.resolveBuyPaymentMethod(paymentMethod),
+            ) || buyPaymentProvider
+        );
     }
 
-    private getBuyPaymentProviderLabel(paymentMethod?: PaymentMethod | null): string {
+    private getBuyPaymentProviderLabel(
+        paymentMethod?: PaymentMethod | null,
+    ): string {
         return this.getBuyPaymentProvider(paymentMethod) === "fincra"
             ? "Fincra"
             : "Nomba";
@@ -142,7 +156,7 @@ export class BuyOrderService {
      */
     private async getFee(
         amount: number,
-        data: any
+        data: any,
     ): Promise<{ fee: number; type: string }> {
         if (data.type === "flat" && typeof data.fee === "number") {
             return {
@@ -169,7 +183,7 @@ export class BuyOrderService {
 
         throw new IncompleteAccountSetupException(
             "Unknown fee structure",
-            HttpStatus.INTERNAL_SERVER_ERROR
+            HttpStatus.INTERNAL_SERVER_ERROR,
         );
     }
 
@@ -187,7 +201,7 @@ export class BuyOrderService {
 
         throw new IncompleteAccountSetupException(
             "Amount is out of range.",
-            HttpStatus.BAD_REQUEST
+            HttpStatus.BAD_REQUEST,
         );
     }
 
@@ -196,10 +210,12 @@ export class BuyOrderService {
      */
     private async getAmountInNaira(
         currency: string,
-        amount: number
+        amount: number,
     ): Promise<{ amount: number; rate: number } | null> {
         try {
-            const rate = await this.rateService.getAssetRate(currency.toUpperCase());
+            const rate = await this.rateService.getAssetRate(
+                currency.toUpperCase(),
+            );
             return {
                 amount: amount * rate.sellRate,
                 rate: rate.sellRate,
@@ -238,37 +254,41 @@ export class BuyOrderService {
             });
         }
 
-        const fallbackWalletAddresses = await this.prisma.cryptoWalletAddress.findMany({
-            where: {
-                userId,
-                assetSymbol,
-                status: CryptoWalletStatus.ACTIVE,
-                address: { not: null },
-                network: { not: null },
-            },
-            select: {
-                address: true,
-                network: true,
-                destination_tag: true,
-            },
-            orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        });
+        const fallbackWalletAddresses =
+            await this.prisma.cryptoWalletAddress.findMany({
+                where: {
+                    userId,
+                    assetSymbol,
+                    status: CryptoWalletStatus.ACTIVE,
+                    address: { not: null },
+                    network: { not: null },
+                },
+                select: {
+                    address: true,
+                    network: true,
+                    destination_tag: true,
+                },
+                orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+            });
 
         if (fallbackWalletAddresses.length <= 1) {
             return fallbackWalletAddresses[0] ?? null;
         }
 
         this.logger.warn(
-            `Ambiguous buy wallet fallback for user ${userId} asset ${assetSymbol}; refusing to choose between ${fallbackWalletAddresses.length} active network addresses`
+            `Ambiguous buy wallet fallback for user ${userId} asset ${assetSymbol}; refusing to choose between ${fallbackWalletAddresses.length} active network addresses`,
         );
 
         throw new WalletAddressNotFoundException(
             `Unable to determine a safe wallet address for asset ${assetSymbol}. Please try again shortly.`,
-            HttpStatus.CONFLICT
+            HttpStatus.CONFLICT,
         );
     }
 
-    private isSameCryptoAmount(requestedAmount: number, existingAmount?: number | null): boolean {
+    private isSameCryptoAmount(
+        requestedAmount: number,
+        existingAmount?: number | null,
+    ): boolean {
         if (typeof existingAmount !== "number") return false;
         return (
             Math.abs(requestedAmount - existingAmount) <=
@@ -281,11 +301,11 @@ export class BuyOrderService {
         existingPayment: {
             order: { amount?: number | null; currency?: string | null } | null;
             paymentMethod?: PaymentMethod | null;
-        }
+        },
     ) {
         if (!existingPayment.order) {
             throw new BadRequestException(
-                "Idempotency key is linked to an invalid order state"
+                "Idempotency key is linked to an invalid order state",
             );
         }
 
@@ -293,13 +313,15 @@ export class BuyOrderService {
         const existingAsset = existingPayment.order.currency?.toUpperCase();
         if (existingAsset !== requestedAsset) {
             throw new BadRequestException(
-                "Idempotency key already used for a different asset"
+                "Idempotency key already used for a different asset",
             );
         }
 
-        if (!this.isSameCryptoAmount(dto.amount, existingPayment.order.amount)) {
+        if (
+            !this.isSameCryptoAmount(dto.amount, existingPayment.order.amount)
+        ) {
             throw new BadRequestException(
-                "Idempotency key already used with a different amount"
+                "Idempotency key already used with a different amount",
             );
         }
 
@@ -331,7 +353,7 @@ export class BuyOrderService {
      */
     async calculateBuyQuote(
         user: User,
-        dto: InitiateBuyOrderDto
+        dto: InitiateBuyOrderDto,
     ): Promise<BuyQuoteResponse> {
         const currency = this.tradeHelpers.ensureSupportedTradeAsset(
             dto.asset,
@@ -386,253 +408,277 @@ export class BuyOrderService {
                     dto.paymentMethod,
                 );
 
-        // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
-        if (dto.idempotencyKey) {
-            const existingPayment = await this.prisma.payment.findUnique({
-                where: { idempotencyKey: dto.idempotencyKey },
-                include: { order: true },
-            });
+                // IDEMPOTENCY CHECK: Return existing order if same idempotencyKey was already used
+                if (dto.idempotencyKey) {
+                    const existingPayment =
+                        await this.prisma.payment.findUnique({
+                            where: { idempotencyKey: dto.idempotencyKey },
+                            include: { order: true },
+                        });
 
-            if (existingPayment?.order) {
-                if (existingPayment.userId !== user.id) {
-                    throw new BadRequestException(
-                        "Idempotency key belongs to a different user"
+                    if (existingPayment?.order) {
+                        if (existingPayment.userId !== user.id) {
+                            throw new BadRequestException(
+                                "Idempotency key belongs to a different user",
+                            );
+                        }
+
+                        this.ensureIdempotentRequestMatchesExistingOrder(dto, {
+                            order: {
+                                amount: existingPayment.order.amount,
+                                currency: existingPayment.order.currency,
+                            },
+                            paymentMethod: existingPayment.paymentMethod,
+                        });
+
+                        this.logger.warn(
+                            `Duplicate buy request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`,
+                        );
+
+                        return this.buildExistingOrderResponse(existingPayment);
+                    }
+                }
+
+                // Minimum amount validation
+                await this.tradeHelpers.validateMinimumAmountInUSDT(
+                    dto.amount,
+                    normalizedAsset,
+                    MIN_BUY_AMOUNT_USDT,
+                    "buy",
+                );
+
+                // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
+                // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
+                // but user already has a non-expired pending buy order for the same asset and amount.
+                const existingPendingPayment =
+                    await this.prisma.payment.findFirst({
+                        where: {
+                            userId: user.id,
+                            status: TransactionStatus.PENDING,
+                            paymentMethod: {
+                                in: this.getSupportedBuyPaymentMethods(),
+                            },
+                            type: TransactionType.P2P_PAYMENT,
+                            orderId: { not: null },
+                            order: {
+                                orderCategory: OrderCategory.BUY,
+                                currency: normalizedAsset,
+                                status: OrderStatus.pending,
+                                amount: {
+                                    gte:
+                                        dto.amount -
+                                        BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
+                                    lte:
+                                        dto.amount +
+                                        BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
+                                },
+                            },
+                            // Only consider orders within the VA expiry window (35 min)
+                            createdAt: {
+                                gt: new Date(Date.now() - 35 * 60 * 1000),
+                            },
+                        },
+                        include: { order: true },
+                        orderBy: {
+                            createdAt: "desc",
+                        },
+                    });
+
+                if (existingPendingPayment?.order) {
+                    this.logger.warn(
+                        `User ${user.id} already has a pending buy order for ${normalizedAsset} (Order: ${existingPendingPayment.orderId}) - Returning existing order`,
+                    );
+
+                    return this.buildExistingOrderResponse(
+                        existingPendingPayment,
                     );
                 }
 
-                this.ensureIdempotentRequestMatchesExistingOrder(dto, {
-                    order: {
-                        amount: existingPayment.order.amount,
-                        currency: existingPayment.order.currency,
-                    },
-                            paymentMethod: existingPayment.paymentMethod,
+                const responseData = await this.calculateBuyQuote(user, {
+                    ...dto,
+                    asset: normalizedAsset,
+                    paymentMethod: selectedPaymentMethod,
                 });
 
-                this.logger.warn(
-                    `Duplicate buy request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`
+                const userData = {
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    phoneNumber: user.phone,
+                };
+
+                const amount = +responseData.totalToChargeViaPaymentGateway;
+                Logger.log(`amount: ${typeof amount}`);
+
+                const paymentGatewayData: InboundPaymentInitializationResult =
+                    await this.inboundFiatPaymentService.initializePayment({
+                        provider: this.getBuyPaymentProvider(
+                            selectedPaymentMethod,
+                        ),
+                        user: userData,
+                        amount,
+                        callbackUrl: frontendUrl,
+                        modePreference: "virtual_account",
+                        allowCheckoutFallback: true,
+                    });
+
+                const amtFiat = await this.getAmountInNaira(
+                    normalizedAsset,
+                    responseData.cryptoBuyAmount,
                 );
 
-                return this.buildExistingOrderResponse(existingPayment);
-            }
-        }
+                const order = await this.prisma.$transaction(
+                    async (tx) => {
+                        const order = await tx.order.create({
+                            data: {
+                                orderCategory: OrderCategory.BUY,
+                                transactionId: generateId({
+                                    type: "transaction",
+                                }),
+                                amount: responseData.cryptoBuyAmount,
+                                fee: responseData.transactionFeeInCrypto,
+                                total: responseData.totalToChargeInCrypto,
+                                status: OrderStatus.pending,
+                                streamlinedStatus: getStreamlinedStatus(
+                                    OrderStatus.pending,
+                                ),
+                                paymentStatus: TransactionStatus.PENDING,
+                                currency: dto.asset.toUpperCase(),
 
-        // Minimum amount validation
-        await this.tradeHelpers.validateMinimumAmountInUSDT(
-            dto.amount,
-            normalizedAsset,
-            MIN_BUY_AMOUNT_USDT,
-            "buy",
-        );
+                                userId: user.id,
+                                amountInFiat: amtFiat?.amount,
+                                rateAtConversion: amtFiat?.rate,
+                                narration: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                                transaction_note: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
+                                sender: `${user.lastName} ${user.firstName}`,
+                            },
+                        });
+                        await tx.payment.create({
+                            data: {
+                                reference: paymentGatewayData.reference,
+                                userId: user.id,
+                                amount:
+                                    responseData.buyRate *
+                                    responseData.cryptoBuyAmount,
+                                chargeFee:
+                                    responseData.buyRate *
+                                    responseData.transactionFeeInCrypto,
+                                totalAmount:
+                                    responseData.totalToChargeViaPaymentGateway,
+                                type: TransactionType.P2P_PAYMENT,
+                                status: TransactionStatus.PENDING,
+                                paymentStatus: TransactionStatus.PENDING,
+                                paymentMethod: getPaymentMethodForBankProvider(
+                                    paymentGatewayData.provider,
+                                ),
+                                sessionId: generateId({ type: "sessionId" }),
+                                transactionId: generateId({
+                                    type: "transaction",
+                                }),
+                                title: `${COMPANY_NAME} p2p buy order payment`,
+                                narration: `Buy order payment for order with id ${order.id}`,
+                                orderId: order.id,
+                                isDebit: false,
+                                expectedCurrency: responseData.currency,
+                                idempotencyKey: dto.idempotencyKey || null,
+                                externalReference:
+                                    paymentGatewayData.mode === "checkout"
+                                        ? paymentGatewayData.authorizationUrl
+                                        : null,
+                                providerAccountReference:
+                                    paymentGatewayData.mode ===
+                                    "virtual_account"
+                                        ? paymentGatewayData.providerAccountReference
+                                        : null,
+                                destinationBankAccountNumber:
+                                    paymentGatewayData.mode ===
+                                    "virtual_account"
+                                        ? paymentGatewayData.accountNumber
+                                        : null,
+                                destinationBankAccountName:
+                                    paymentGatewayData.mode ===
+                                    "virtual_account"
+                                        ? paymentGatewayData.accountName
+                                        : null,
+                                destinationBankName:
+                                    paymentGatewayData.mode ===
+                                    "virtual_account"
+                                        ? paymentGatewayData.bankName
+                                        : null,
+                            },
+                        });
 
-
-        // EXISTING PENDING ORDER GUARD: Prevent duplicate orders for the same asset + amount
-        // Catches cases where frontend generates a new idempotencyKey (e.g. modal re-opened)
-        // but user already has a non-expired pending buy order for the same asset and amount.
-        const existingPendingPayment = await this.prisma.payment.findFirst({
-            where: {
-                userId: user.id,
-                status: TransactionStatus.PENDING,
-                paymentMethod: { in: this.getSupportedBuyPaymentMethods() },
-                type: TransactionType.P2P_PAYMENT,
-                orderId: { not: null },
-                order: {
-                    orderCategory: OrderCategory.BUY,
-                    currency: normalizedAsset,
-                    status: OrderStatus.pending,
-                    amount: {
-                        gte: dto.amount - BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
-                        lte: dto.amount + BuyOrderService.CRYPTO_AMOUNT_TOLERANCE,
+                        return order;
                     },
-                },
-                // Only consider orders within the VA expiry window (35 min)
-                createdAt: {
-                    gt: new Date(Date.now() - 35 * 60 * 1000),
-                },
-            },
-            include: { order: true },
-            orderBy: {
-                createdAt: "desc",
-            },
-        });
-
-        if (existingPendingPayment?.order) {
-            this.logger.warn(
-                `User ${user.id} already has a pending buy order for ${normalizedAsset} (Order: ${existingPendingPayment.orderId}) - Returning existing order`
-            );
-
-            return this.buildExistingOrderResponse(existingPendingPayment);
-        }
-
-        const responseData = await this.calculateBuyQuote(user, {
-            ...dto,
-            asset: normalizedAsset,
-            paymentMethod: selectedPaymentMethod,
-        });
-
-        const userData = {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            phoneNumber: user.phone,
-        };
-
-        const amount = +responseData.totalToChargeViaPaymentGateway;
-        Logger.log(`amount: ${typeof amount}`);
-
-        const paymentGatewayData: InboundPaymentInitializationResult =
-            await this.inboundFiatPaymentService.initializePayment({
-                provider: this.getBuyPaymentProvider(selectedPaymentMethod),
-                user: userData,
-                amount,
-                callbackUrl: frontendUrl,
-                modePreference: "virtual_account",
-                allowCheckoutFallback: true,
-            });
-
-        const amtFiat = await this.getAmountInNaira(
-            normalizedAsset,
-            responseData.cryptoBuyAmount
-        );
-
-        const order = await this.prisma.$transaction(
-            async (tx) => {
-                const order = await tx.order.create({
-                    data: {
-                        orderCategory: OrderCategory.BUY,
-                        transactionId: generateId({ type: "transaction" }),
-                        amount: responseData.cryptoBuyAmount,
-                        fee: responseData.transactionFeeInCrypto,
-                        total: responseData.totalToChargeInCrypto,
-                        status: OrderStatus.pending,
-                        streamlinedStatus: getStreamlinedStatus(
-                            OrderStatus.pending
-                        ),
-                        paymentStatus: TransactionStatus.PENDING,
-                        currency: dto.asset.toUpperCase(),
-
-                        userId: user.id,
-                        amountInFiat: amtFiat?.amount,
-                        rateAtConversion: amtFiat?.rate,
-                        narration: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
-                        transaction_note: `Buy ${responseData.cryptoBuyAmount} ${dto.asset.toUpperCase()}`,
-                        sender: `${user.lastName} ${user.firstName}`,
+                    {
+                        maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
+                        timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
                     },
-                });
-                await tx.payment.create({
-                    data: {
-                        reference: paymentGatewayData.reference,
-                        userId: user.id,
-                        amount:
-                            responseData.buyRate * responseData.cryptoBuyAmount,
-                        chargeFee:
-                            responseData.buyRate *
-                            responseData.transactionFeeInCrypto,
-                        totalAmount:
-                            responseData.totalToChargeViaPaymentGateway,
-                        type: TransactionType.P2P_PAYMENT,
-                        status: TransactionStatus.PENDING,
-                        paymentStatus: TransactionStatus.PENDING,
-                        paymentMethod: getPaymentMethodForBankProvider(
-                            paymentGatewayData.provider
-                        ),
-                        sessionId: generateId({ type: "sessionId" }),
-                        transactionId: generateId({ type: "transaction" }),
-                        title: `${COMPANY_NAME} p2p buy order payment`,
-                        narration: `Buy order payment for order with id ${order.id}`,
-                        orderId: order.id,
-                        isDebit: false,
-                        expectedCurrency: responseData.currency,
-                        idempotencyKey: dto.idempotencyKey || null,
-                        externalReference:
-                            paymentGatewayData.mode === "checkout"
-                                ? paymentGatewayData.authorizationUrl
-                                : null,
-                        providerAccountReference:
-                            paymentGatewayData.mode === "virtual_account"
-                                ? paymentGatewayData.providerAccountReference
-                                : null,
-                        destinationBankAccountNumber:
-                            paymentGatewayData.mode === "virtual_account"
-                                ? paymentGatewayData.accountNumber
-                                : null,
-                        destinationBankAccountName:
-                            paymentGatewayData.mode === "virtual_account"
-                                ? paymentGatewayData.accountName
-                                : null,
-                        destinationBankName:
-                            paymentGatewayData.mode === "virtual_account"
-                                ? paymentGatewayData.bankName
-                                : null,
-                    },
+                );
+
+                // Emit transaction update for new buy order
+                this.emitTransactionUpdate(user.id, order);
+
+                // Emit wallet update for buy order initiation
+                this.wsGateway.notifyWalletUpdate(user.id);
+
+                // Create and send notification for processing
+                const message = `Your buy order of ${
+                    order.amount
+                } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${
+                    order.transactionId
+                }`;
+
+                await this.notificationDispatcher.notify({
+                    userId: user.id,
+                    title: "Buy order initiated",
+                    body: message,
+                    category: "transaction",
+                    currency: order.currency,
+                    transactionType: OrderCategory.BUY,
+                    enablePush: true,
                 });
 
-                return order;
-            },
-            {
-                maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
-                timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
-            }
-        );
-
-        // Emit transaction update for new buy order
-        this.emitTransactionUpdate(user.id, order);
-
-        // Emit wallet update for buy order initiation
-        this.wsGateway.notifyWalletUpdate(user.id);
-
-        // Create and send notification for processing
-        const message = `Your buy order of ${order.amount
-            } ${order.currency.toUpperCase()} is pending payment. Transaction ID: ${order.transactionId
-            }`;
-
-        await this.notificationDispatcher.notify({
-            userId: user.id,
-            title: "Buy order initiated",
-            body: message,
-            category: "transaction",
-            currency: order.currency,
-            transactionType: OrderCategory.BUY,
-            enablePush: true,
-        });
-
-        // Generate USSD code if bank is supported
-        const ussdCode =
-            paymentGatewayData.mode === "virtual_account"
-                ? generateUssdCode(
-                    paymentGatewayData.bankCode,
-                    paymentGatewayData.accountNumber,
-                    amount
-                )
-                : null;
-
-        return buildResponse({
-            message:
-                "Order placed successfully, Please proceed to make payment",
-            data: {
-                order: order,
-                paymentInfo:
+                // Generate USSD code if bank is supported
+                const ussdCode =
                     paymentGatewayData.mode === "virtual_account"
-                        ? {
-                            reference: paymentGatewayData.reference,
-                            accountNumber: paymentGatewayData.accountNumber,
-                            accountName: paymentGatewayData.accountName,
-                            bankName: paymentGatewayData.bankName,
-                            bankCode: paymentGatewayData.bankCode,
-                            amount,
-                            expiryAt: paymentGatewayData.expiryAt,
-                            ussdCode,
-                        }
-                        : {
-                            authorization_url:
-                                paymentGatewayData.authorizationUrl,
-                            reference: paymentGatewayData.reference,
-                            amount: paymentGatewayData.amount,
-                            expiryAt: paymentGatewayData.expiryAt,
-                            ussdCode: null,
-                        },
-            },
-        });
+                        ? generateUssdCode(
+                              paymentGatewayData.bankCode,
+                              paymentGatewayData.accountNumber,
+                              amount,
+                          )
+                        : null;
+
+                return buildResponse({
+                    message:
+                        "Order placed successfully, Please proceed to make payment",
+                    data: {
+                        order: order,
+                        paymentInfo:
+                            paymentGatewayData.mode === "virtual_account"
+                                ? {
+                                      reference: paymentGatewayData.reference,
+                                      accountNumber:
+                                          paymentGatewayData.accountNumber,
+                                      accountName:
+                                          paymentGatewayData.accountName,
+                                      bankName: paymentGatewayData.bankName,
+                                      bankCode: paymentGatewayData.bankCode,
+                                      amount,
+                                      expiryAt: paymentGatewayData.expiryAt,
+                                      ussdCode,
+                                  }
+                                : {
+                                      authorization_url:
+                                          paymentGatewayData.authorizationUrl,
+                                      reference: paymentGatewayData.reference,
+                                      amount: paymentGatewayData.amount,
+                                      expiryAt: paymentGatewayData.expiryAt,
+                                      ussdCode: null,
+                                  },
+                    },
+                });
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
@@ -645,7 +691,7 @@ export class BuyOrderService {
      */
     async fulfillBuyOrder(reference: string) {
         this.logger.log(
-            `Fulfilling buy order for payment reference: ${reference}`
+            `Fulfilling buy order for payment reference: ${reference}`,
         );
 
         // Atomic: Only update if status is still PENDING.
@@ -672,25 +718,32 @@ export class BuyOrderService {
             });
             if (!existing) {
                 this.logger.error(
-                    `Payment not found for reference: ${reference}`
+                    `Payment not found for reference: ${reference}`,
                 );
             } else if (existing.status === TransactionStatus.SUCCESS) {
-                this.logger.log(`Payment ${reference} already completed successfully`);
+                this.logger.log(
+                    `Payment ${reference} already completed successfully`,
+                );
             } else if (existing.status === TransactionStatus.APPROVED) {
                 // Another webhook instance is currently processing - let that one finish
-                this.logger.log(`Payment ${reference} currently being processed by another instance`);
+                this.logger.log(
+                    `Payment ${reference} currently being processed by another instance`,
+                );
             } else if (existing.status === TransactionStatus.FAILED) {
-                const provider = this.getBuyPaymentProvider(existing.paymentMethod);
-                const receivedAmount = this.buildManualRefundAlertAmount(existing);
+                const provider = this.getBuyPaymentProvider(
+                    existing.paymentMethod,
+                );
+                const receivedAmount =
+                    this.buildManualRefundAlertAmount(existing);
 
                 // Payment was cancelled but funds still arrived — needs manual refund
                 this.logger.error(
-                    `Payment ${reference} was cancelled/failed but received funds — manual refund required`
+                    `Payment ${reference} was cancelled/failed but received funds — manual refund required`,
                 );
                 await this.slackWebhookService.sendWebhookFailureAlert(
                     provider,
                     reference,
-                    'Payment received for a cancelled/failed order. Manual refund required.',
+                    "Payment received for a cancelled/failed order. Manual refund required.",
                     {
                         paymentId: existing.id,
                         orderId: existing.orderId,
@@ -703,10 +756,12 @@ export class BuyOrderService {
                         senderAccountName: existing.senderAccountName,
                         senderBankName: existing.senderBankName,
                         externalReference: existing.externalReference,
-                    }
+                    },
                 );
             } else {
-                this.logger.log(`Payment ${reference} in unexpected state: ${existing.status}`);
+                this.logger.log(
+                    `Payment ${reference} in unexpected state: ${existing.status}`,
+                );
             }
             return;
         }
@@ -720,7 +775,7 @@ export class BuyOrderService {
         if (!payment) {
             // Shouldn't happen since updateMany succeeded, but guard anyway
             this.logger.error(
-                `Payment disappeared after atomic update: ${reference}`
+                `Payment disappeared after atomic update: ${reference}`,
             );
             return;
         }
@@ -741,7 +796,7 @@ export class BuyOrderService {
             const user = payment.user;
 
             this.logger.log(
-                `[Omnibus] Crediting virtual balance for Order ${order.id} | User: ${user.id} | Amount: ${order.amount} ${order.currency}`
+                `[Omnibus] Crediting virtual balance for Order ${order.id} | User: ${user.id} | Amount: ${order.amount} ${order.currency}`,
             );
 
             // Credit the user's ledger (virtual balance) AND update order atomically
@@ -754,23 +809,26 @@ export class BuyOrderService {
             await this.prisma.$transaction(
                 async (tx) => {
                     // Step 1: Credit user's ledger INSIDE the transaction
-                    creditResult = await this.ledgerService.pairedCreditInTransaction(tx, {
-                        userId: payment.userId,
-                        currency: order.currency.toUpperCase(),
-                        amount: order.amount,
-                        type: LedgerType.BUY,
-                        reference: `buy:${order.transactionId}`,
-                        metadata: {
-                            orderId: order.id,
-                            paymentReference: reference,
-                            omnibus: true,
-                        },
-                        sweepStatus: SweepStatus.NOT_APPLICABLE,
-                        createPlatformEntry: true
-                    });
+                    creditResult =
+                        await this.ledgerService.pairedCreditInTransaction(tx, {
+                            userId: payment.userId,
+                            currency: order.currency.toUpperCase(),
+                            amount: order.amount,
+                            type: LedgerType.BUY,
+                            reference: `buy:${order.transactionId}`,
+                            metadata: {
+                                orderId: order.id,
+                                paymentReference: reference,
+                                omnibus: true,
+                            },
+                            sweepStatus: SweepStatus.NOT_APPLICABLE,
+                            createPlatformEntry: true,
+                        });
 
                     if (!creditResult.success) {
-                        throw new Error(`Ledger credit failed: ${creditResult.error}`);
+                        throw new Error(
+                            `Ledger credit failed: ${creditResult.error}`,
+                        );
                     }
 
                     // Step 2: Mark payment as SUCCESS (same transaction)
@@ -787,7 +845,9 @@ export class BuyOrderService {
                         where: { id: order.id },
                         data: {
                             status: OrderStatus.completed,
-                            streamlinedStatus: getStreamlinedStatus(OrderStatus.completed),
+                            streamlinedStatus: getStreamlinedStatus(
+                                OrderStatus.completed,
+                            ),
                             paymentStatus: TransactionStatus.SUCCESS,
                             fulfilled: true,
                             ledgerEntryId: creditResult.userEntry?.id,
@@ -800,13 +860,13 @@ export class BuyOrderService {
                 {
                     maxWait: DEFAULT_TRANSACTION_MAX_WAIT_MS,
                     timeout: EXTENDED_TRANSACTION_TIMEOUT_MS,
-                    isolationLevel: 'Serializable', // Ensures consistency
-                }
+                    isolationLevel: "Serializable", // Ensures consistency
+                },
             );
 
             // Notifications
             this.logger.log(
-                `Buy order ${order.id} fulfilled and completed successfully`
+                `Buy order ${order.id} fulfilled and completed successfully`,
             );
 
             const updatedOrder = await this.prisma.order.findUnique({
@@ -817,8 +877,9 @@ export class BuyOrderService {
             }
             this.wsGateway.notifyWalletUpdate(payment.userId);
 
-            const message = `Your buy order of ${order.amount
-                } ${order.currency.toUpperCase()} has been completed successfully.`;
+            const message = `Your buy order of ${
+                order.amount
+            } ${order.currency.toUpperCase()} has been completed successfully.`;
             await this.notificationDispatcher.notify({
                 userId: payment.userId,
                 title: "Buy order successful",
@@ -828,12 +889,12 @@ export class BuyOrderService {
                 transactionType: OrderCategory.BUY,
                 enableEmail: true,
                 emailPayload: {
-                    email: payment.user?.email || '',
-                    transactionType: 'buy',
+                    email: payment.user?.email || "",
+                    transactionType: "buy",
                     transactionId: order.transactionId,
                     amount: String(order.amount),
                     currency: order.currency,
-                    status: 'completed',
+                    status: "completed",
                     date: new Date().toISOString(),
                     notice: message,
                 },
@@ -842,7 +903,7 @@ export class BuyOrderService {
         } catch (error) {
             this.logger.error(
                 `Failed to fulfill buy order (Transfer/Update Error) for order ${order.id}: ${error.message}`,
-                error.stack
+                error.stack,
             );
 
             // Revert payment to PENDING so next webhook retry can try again
@@ -855,7 +916,9 @@ export class BuyOrderService {
                     },
                 });
             } catch (revertError) {
-                this.logger.error(`Failed to revert payment status: ${revertError.message}`);
+                this.logger.error(
+                    `Failed to revert payment status: ${revertError.message}`,
+                );
             }
 
             // Send Slack Alert for admin intervention
@@ -870,7 +933,7 @@ export class BuyOrderService {
                     currency: order.currency,
                     userId: order.userId,
                     cryptoSubAccountId: payment.user.cryptoSubAccountId,
-                }
+                },
             );
 
             // Re-throw so webhook controller returns 5xx and Nomba retries
@@ -885,35 +948,37 @@ export class BuyOrderService {
     private buildExistingOrderResponse(existingPayment: any) {
         // VA expires 35 minutes after creation
         const VA_EXPIRY_MINUTES = 35;
-        const expiryTime = existingPayment.createdAt.getTime() + VA_EXPIRY_MINUTES * 60 * 1000;
+        const expiryTime =
+            existingPayment.createdAt.getTime() + VA_EXPIRY_MINUTES * 60 * 1000;
         const expiryAt = new Date(expiryTime).toISOString();
 
         // Don't return stale/near-expired VA details — force user to wait for expiry + create fresh order
         const remainingMs = expiryTime - Date.now();
         if (remainingMs < 2 * 60 * 1000) {
             throw new BadRequestException(
-                'Your previous order has nearly expired. Please wait a moment and try again.'
+                "Your previous order has nearly expired. Please wait a moment and try again.",
             );
         }
 
         const paymentInfo = existingPayment.destinationBankAccountNumber
             ? {
-                reference: existingPayment.reference,
-                accountNumber: existingPayment.destinationBankAccountNumber || "",
-                accountName: existingPayment.destinationBankAccountName || "",
-                bankName: existingPayment.destinationBankName || "",
-                bankCode: "",
-                amount: Number(existingPayment.totalAmount),
-                expiryAt,
-                ussdCode: null,
-            }
+                  reference: existingPayment.reference,
+                  accountNumber:
+                      existingPayment.destinationBankAccountNumber || "",
+                  accountName: existingPayment.destinationBankAccountName || "",
+                  bankName: existingPayment.destinationBankName || "",
+                  bankCode: "",
+                  amount: Number(existingPayment.totalAmount),
+                  expiryAt,
+                  ussdCode: null,
+              }
             : {
-                authorization_url: existingPayment.externalReference || "",
-                reference: existingPayment.reference,
-                amount: Number(existingPayment.totalAmount),
-                expiryAt,
-                ussdCode: null,
-            };
+                  authorization_url: existingPayment.externalReference || "",
+                  reference: existingPayment.reference,
+                  amount: Number(existingPayment.totalAmount),
+                  expiryAt,
+                  ussdCode: null,
+              };
 
         return buildResponse({
             message: "Order already exists for this request",
@@ -970,7 +1035,10 @@ export class BuyOrderService {
         } else if (payment.status === TransactionStatus.APPROVED) {
             status = "processing";
         } else if (payment.status === TransactionStatus.FAILED) {
-            status = order?.status === OrderStatus.cancelled ? "cancelled" : "failed";
+            status =
+                order?.status === OrderStatus.cancelled
+                    ? "cancelled"
+                    : "failed";
         } else {
             status = "pending";
         }
@@ -1019,7 +1087,7 @@ export class BuyOrderService {
             if (updated.count === 0) {
                 // Webhook claimed the payment between findFirst and now — abort cancel
                 this.logger.warn(
-                    `Cancel aborted: payment ${payment.id} no longer PENDING (webhook likely claimed it)`
+                    `Cancel aborted: payment ${payment.id} no longer PENDING (webhook likely claimed it)`,
                 );
                 return false;
             }
@@ -1030,7 +1098,7 @@ export class BuyOrderService {
                     data: {
                         status: OrderStatus.cancelled,
                         streamlinedStatus: getStreamlinedStatus(
-                            OrderStatus.cancelled
+                            OrderStatus.cancelled,
                         ),
                         paymentStatus: TransactionStatus.FAILED,
                     },
@@ -1042,7 +1110,8 @@ export class BuyOrderService {
 
         if (!cancelled) {
             return buildResponse({
-                message: "Order is already being processed and cannot be cancelled",
+                message:
+                    "Order is already being processed and cannot be cancelled",
                 data: { cancelled: false },
             });
         }
@@ -1072,12 +1141,12 @@ export class BuyOrderService {
                 transactionType: OrderCategory.BUY,
                 enableEmail: true,
                 emailPayload: {
-                    email: payment.user?.email || '',
-                    transactionType: 'buy',
+                    email: payment.user?.email || "",
+                    transactionType: "buy",
                     transactionId: payment.order.transactionId,
                     amount: String(payment.order.amount),
                     currency: payment.order.currency.toUpperCase(),
-                    status: 'cancelled',
+                    status: "cancelled",
                     date: new Date().toISOString(),
                     notice: message,
                 },
@@ -1089,12 +1158,13 @@ export class BuyOrderService {
         await this.inboundFiatPaymentService
             .cleanupPendingPayment({
                 provider: this.getBuyPaymentProvider(payment.paymentMethod),
-                reference: payment.providerAccountReference || payment.reference,
+                reference:
+                    payment.providerAccountReference || payment.reference,
             })
             .catch(() => {});
 
         this.logger.log(
-            `Buy order cancelled by user ${userId} | Payment ref: ${reference}`
+            `Buy order cancelled by user ${userId} | Payment ref: ${reference}`,
         );
 
         return buildResponse({
@@ -1131,7 +1201,7 @@ export class BuyOrderService {
         });
 
         this.logger.log(
-            `Pending buy order reminder sent to user ${userId} | Payment ref: ${reference}`
+            `Pending buy order reminder sent to user ${userId} | Payment ref: ${reference}`,
         );
 
         return buildResponse({
@@ -1150,7 +1220,9 @@ export class BuyOrderService {
             where: {
                 reference,
                 userId,
-                status: { in: [TransactionStatus.PENDING, TransactionStatus.APPROVED] },
+                status: {
+                    in: [TransactionStatus.PENDING, TransactionStatus.APPROVED],
+                },
             },
             include: { order: true },
         });
@@ -1170,7 +1242,7 @@ export class BuyOrderService {
             });
 
             this.logger.log(
-                `User ${userId} confirmed payment sent | Ref: ${reference} | Order: ${payment.orderId}`
+                `User ${userId} confirmed payment sent | Ref: ${reference} | Order: ${payment.orderId}`,
             );
         }
 
@@ -1202,20 +1274,31 @@ export class BuyOrderService {
             },
             include: {
                 order: true,
-                user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        firstName: true,
+                        lastName: true,
+                    },
+                },
             },
         });
 
         if (stuckPayments.length === 0) return 0;
 
         this.logger.warn(
-            `Found ${stuckPayments.length} stuck buy orders where user confirmed payment but webhook didn't arrive`
+            `Found ${stuckPayments.length} stuck buy orders where user confirmed payment but webhook didn't arrive`,
         );
 
         for (const payment of stuckPayments) {
             try {
-                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
-                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+                const provider = this.getBuyPaymentProvider(
+                    payment.paymentMethod,
+                );
+                const providerLabel = this.getBuyPaymentProviderLabel(
+                    payment.paymentMethod,
+                );
 
                 await this.slackWebhookService.sendWebhookFailureAlert(
                     provider,
@@ -1229,9 +1312,10 @@ export class BuyOrderService {
                         userId: payment.userId,
                         userEmail: payment.user?.email,
                         userName: `${payment.user?.firstName} ${payment.user?.lastName}`,
-                        confirmedAt: payment.paymentConfirmedByUser?.toISOString(),
+                        confirmedAt:
+                            payment.paymentConfirmedByUser?.toISOString(),
                         paymentCreatedAt: payment.createdAt.toISOString(),
-                    }
+                    },
                 );
 
                 // Mark as alerted so we don't spam Slack on subsequent cron runs
@@ -1241,11 +1325,11 @@ export class BuyOrderService {
                 });
 
                 this.logger.warn(
-                    `Slack alert sent for stuck order | Payment: ${payment.id} | Ref: ${payment.reference} | User: ${payment.userId}`
+                    `Slack alert sent for stuck order | Payment: ${payment.id} | Ref: ${payment.reference} | User: ${payment.userId}`,
                 );
             } catch (error) {
                 this.logger.error(
-                    `Failed to send Slack alert for stuck payment ${payment.id}: ${error.message}`
+                    `Failed to send Slack alert for stuck payment ${payment.id}: ${error.message}`,
                 );
             }
         }
@@ -1277,11 +1361,14 @@ export class BuyOrderService {
                     lt: new Date(Date.now() - 35 * 60 * 1000),
                 },
             },
-            include: { order: true, user: { select: { id: true, email: true } } },
+            include: {
+                order: true,
+                user: { select: { id: true, email: true } },
+            },
         });
 
         this.logger.log(
-            `Found ${expiredPayments.length} expired buy order payments to cancel`
+            `Found ${expiredPayments.length} expired buy order payments to cancel`,
         );
 
         for (const payment of expiredPayments) {
@@ -1289,7 +1376,10 @@ export class BuyOrderService {
                 // Atomic: only cancel if still PENDING — prevents race with late webhook
                 const didCancel = await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.payment.updateMany({
-                        where: { id: payment.id, status: TransactionStatus.PENDING },
+                        where: {
+                            id: payment.id,
+                            status: TransactionStatus.PENDING,
+                        },
                         data: {
                             status: TransactionStatus.FAILED,
                             paymentStatus: TransactionStatus.FAILED,
@@ -1298,7 +1388,7 @@ export class BuyOrderService {
 
                     if (updated.count === 0) {
                         this.logger.warn(
-                            `Skipping expired cancel for payment ${payment.id} — no longer PENDING`
+                            `Skipping expired cancel for payment ${payment.id} — no longer PENDING`,
                         );
                         return false;
                     }
@@ -1309,7 +1399,7 @@ export class BuyOrderService {
                             data: {
                                 status: OrderStatus.cancelled,
                                 streamlinedStatus: getStreamlinedStatus(
-                                    OrderStatus.cancelled
+                                    OrderStatus.cancelled,
                                 ),
                                 paymentStatus: TransactionStatus.FAILED,
                             },
@@ -1329,7 +1419,7 @@ export class BuyOrderService {
                         ...payment.order,
                         status: OrderStatus.cancelled,
                         streamlinedStatus: getStreamlinedStatus(
-                            OrderStatus.cancelled
+                            OrderStatus.cancelled,
                         ),
                     });
                 }
@@ -1347,12 +1437,12 @@ export class BuyOrderService {
                         transactionType: OrderCategory.BUY,
                         enableEmail: true,
                         emailPayload: {
-                            email: payment.user?.email || '',
-                            transactionType: 'buy',
+                            email: payment.user?.email || "",
+                            transactionType: "buy",
                             transactionId: payment.order.transactionId,
                             amount: String(payment.order.amount),
                             currency: payment.order.currency.toUpperCase(),
-                            status: 'cancelled',
+                            status: "cancelled",
                             date: new Date().toISOString(),
                             notice: expiredMessage,
                         },
@@ -1363,17 +1453,21 @@ export class BuyOrderService {
                 // Best-effort: release provider-side pending payment artifacts when applicable.
                 await this.inboundFiatPaymentService
                     .cleanupPendingPayment({
-                        provider: this.getBuyPaymentProvider(payment.paymentMethod),
-                        reference: payment.providerAccountReference || payment.reference,
+                        provider: this.getBuyPaymentProvider(
+                            payment.paymentMethod,
+                        ),
+                        reference:
+                            payment.providerAccountReference ||
+                            payment.reference,
                     })
                     .catch(() => {});
 
                 this.logger.log(
-                    `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`
+                    `Cancelled expired buy order | Payment: ${payment.id} | Ref: ${payment.reference}`,
                 );
             } catch (error) {
                 this.logger.error(
-                    `Failed to cancel expired payment ${payment.id}: ${error.message}`
+                    `Failed to cancel expired payment ${payment.id}: ${error.message}`,
                 );
             }
         }
@@ -1409,7 +1503,11 @@ export class BuyOrderService {
         const toCancel = underpaidPayments.filter((p) => {
             const expected = Number(p.totalAmount);
             const received = Number(p.receivedAmount);
-            return expected > 0 && received < expected * 0.99 && p.order?.status === OrderStatus.pending;
+            return (
+                expected > 0 &&
+                received < expected * 0.99 &&
+                p.order?.status === OrderStatus.pending
+            );
         });
 
         this.logger.log(
@@ -1418,12 +1516,19 @@ export class BuyOrderService {
 
         for (const payment of toCancel) {
             try {
-                const provider = this.getBuyPaymentProvider(payment.paymentMethod);
-                const providerLabel = this.getBuyPaymentProviderLabel(payment.paymentMethod);
+                const provider = this.getBuyPaymentProvider(
+                    payment.paymentMethod,
+                );
+                const providerLabel = this.getBuyPaymentProviderLabel(
+                    payment.paymentMethod,
+                );
 
                 const didCancel = await this.prisma.$transaction(async (tx) => {
                     const updated = await tx.payment.updateMany({
-                        where: { id: payment.id, status: TransactionStatus.PENDING },
+                        where: {
+                            id: payment.id,
+                            status: TransactionStatus.PENDING,
+                        },
                         data: {
                             status: TransactionStatus.FAILED,
                             paymentStatus: TransactionStatus.FAILED,
@@ -1477,12 +1582,12 @@ export class BuyOrderService {
                         transactionType: OrderCategory.BUY,
                         enableEmail: true,
                         emailPayload: {
-                            email: payment.user?.email || '',
-                            transactionType: 'buy',
+                            email: payment.user?.email || "",
+                            transactionType: "buy",
                             transactionId: payment.order.transactionId,
                             amount: String(payment.order.amount),
                             currency: payment.order.currency.toUpperCase(),
-                            status: 'cancelled',
+                            status: "cancelled",
                             date: new Date().toISOString(),
                             notice: underpaidMessage,
                         },
@@ -1495,10 +1600,10 @@ export class BuyOrderService {
                     provider,
                     payment.reference,
                     `Underpaid buy order auto-cancelled after 2h grace period. ` +
-                    `Expected ₦${Number(payment.totalAmount)}, received ₦${Number(payment.receivedAmount)}. ` +
-                    `Sender: ${payment.senderAccountName || 'N/A'} (${payment.senderAccountNumber || 'N/A'}) @ ${payment.senderBankName || 'N/A'}. ` +
-                    `${providerLabel} refund/manual review required. ` +
-                    `Ops must process refund of ₦${Number(payment.receivedAmount)}.`,
+                        `Expected ₦${Number(payment.totalAmount)}, received ₦${Number(payment.receivedAmount)}. ` +
+                        `Sender: ${payment.senderAccountName || "N/A"} (${payment.senderAccountNumber || "N/A"}) @ ${payment.senderBankName || "N/A"}. ` +
+                        `${providerLabel} refund/manual review required. ` +
+                        `Ops must process refund of ₦${Number(payment.receivedAmount)}.`,
                     {
                         orderId: payment.orderId,
                         userId: payment.userId,
@@ -1513,7 +1618,9 @@ export class BuyOrderService {
                 await this.inboundFiatPaymentService
                     .cleanupPendingPayment({
                         provider: provider,
-                        reference: payment.providerAccountReference || payment.reference,
+                        reference:
+                            payment.providerAccountReference ||
+                            payment.reference,
                     })
                     .catch(() => {});
 
@@ -1530,12 +1637,11 @@ export class BuyOrderService {
         return toCancel.length;
     }
 
-
     /**
      * Executes the Internal Buy Leg of a Swap (Admin -> User)
      * Does NOT create a DB Order (SwapService handles that).
      * Returns a success result.
-     * 
+     *
      * OMNIBUS VIRTUAL BALANCE: Only credits the target currency to user's ledger
      * No actual crypto transfer happens - crypto stays in omnibus wallet
      */
@@ -1543,10 +1649,10 @@ export class BuyOrderService {
         user: User,
         amount: number, // Amount of Crypto B to credit to user's virtual balance
         currency: string,
-        reference: string
+        reference: string,
     ) {
         this.logger.log(
-            `[Omnibus] Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
+            `[Omnibus] Executing Internal Buy for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`,
         );
 
         // OMNIBUS: Credit the target currency to user's ledger (virtual balance)
@@ -1563,12 +1669,12 @@ export class BuyOrderService {
                 omnibus: true, // Flag indicating this is omnibus (no Quidax transfer)
             },
             sweepStatus: SweepStatus.NOT_APPLICABLE, // Swap buy doesn't need sweep - funds stay in omnibus
-            createPlatformEntry: true
+            createPlatformEntry: true,
         });
 
         if (!creditResult.success) {
             this.logger.error(
-                `Failed to credit ledger for swap buy leg: ${creditResult.error}`
+                `Failed to credit ledger for swap buy leg: ${creditResult.error}`,
             );
             throw new Error(`Ledger credit failed: ${creditResult.error}`);
         }

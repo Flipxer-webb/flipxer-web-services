@@ -31,7 +31,7 @@ import { MIN_SELL_AMOUNT_USDT } from "../constants";
 
 /**
  * Sell Order Service
- * 
+ *
  * Handles all sell order operations including:
  * - Quote calculation for sell orders
  * - Order placement with crypto withdrawal
@@ -53,14 +53,18 @@ export class SellOrderService {
         private readonly rateService: RateService,
         private readonly notificationDispatcher: NotificationDispatcher,
         private readonly slackWebhookService: SlackWebhookService,
-        private readonly distributedLockService: DistributedLockService
-    ) { }
+        private readonly distributedLockService: DistributedLockService,
+    ) {}
 
     /** Safely extract a human-readable message from an unknown thrown value. */
     private formatError(error: unknown): string {
         if (error instanceof Error) return error.message;
-        if (typeof error === 'string') return error;
-        try { return JSON.stringify(error); } catch { return '[non-serializable error]'; }
+        if (typeof error === "string") return error;
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return "[non-serializable error]";
+        }
     }
 
     private triggerBestEffortWalletSync(userId: number, currency: string) {
@@ -74,7 +78,7 @@ export class SellOrderService {
             .syncWallet(userId, normalizedCurrency)
             .catch((error: unknown) => {
                 this.logger.warn(
-                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${this.formatError(error)}`
+                    `Best-effort wallet sync failed for user ${userId} ${normalizedCurrency}: ${this.formatError(error)}`,
                 );
             });
     }
@@ -97,7 +101,7 @@ export class SellOrderService {
     async calculateSellQuote(
         user: User,
         dto: InitiateSellOrderDto,
-        internal = false
+        internal = false,
     ): Promise<SellQuoteResponse> {
         const currency = this.tradeHelpers.ensureSupportedTradeAsset(
             dto.asset,
@@ -121,7 +125,7 @@ export class SellOrderService {
         if (!bankDetail && !internal) {
             throw new BankDetailNotFoundException(
                 "No bank detail found. Please setup your bank detail",
-                HttpStatus.NOT_FOUND
+                HttpStatus.NOT_FOUND,
             );
         }
 
@@ -165,21 +169,23 @@ export class SellOrderService {
         holdAmount: number,
         holdReference: string,
     ): Promise<void> {
-        const monitorResult = await this.transactionMonitorService.validateBeforeExecution({
-            userId: user.id,
-            currency,
-            amount: holdAmount,
-            operationType: "SELL",
-            reference: holdReference,
-        });
+        const monitorResult =
+            await this.transactionMonitorService.validateBeforeExecution({
+                userId: user.id,
+                currency,
+                amount: holdAmount,
+                operationType: "SELL",
+                reference: holdReference,
+            });
 
         if (!monitorResult.success) {
             this.logger.warn(
-                `Transaction monitor blocked sell order | User: ${user.id} | Amount: ${holdAmount} ${currency} | Reason: ${monitorResult.reason}`
+                `Transaction monitor blocked sell order | User: ${user.id} | Amount: ${holdAmount} ${currency} | Reason: ${monitorResult.reason}`,
             );
             throw new GeneralTransactionException(
-                monitorResult.reason || "Transaction blocked by monitoring system",
-                HttpStatus.FORBIDDEN
+                monitorResult.reason ||
+                    "Transaction blocked by monitoring system",
+                HttpStatus.FORBIDDEN,
             );
         }
 
@@ -194,11 +200,15 @@ export class SellOrderService {
 
         if (!holdResult.success) {
             this.logger.error(
-                `Failed to hold funds for sell order: ${holdResult.error}`
+                `Failed to hold funds for sell order: ${holdResult.error}`,
             );
             throw new InsufficientBalanceException(
                 `Insufficient ${currency} balance. ${holdResult.error}`,
-                { currency, requiredAmount: holdAmount, error: holdResult.error }
+                {
+                    currency,
+                    requiredAmount: holdAmount,
+                    error: holdResult.error,
+                },
             );
         }
     }
@@ -214,197 +224,244 @@ export class SellOrderService {
                     dto.asset,
                     "sell",
                 );
-        const responseData = await this.calculateSellQuote(user, dto, true);
-
-        await this.tradeHelpers.validateMinimumAmountInUSDT(
-            dto.amount,
-            currency,
-            MIN_SELL_AMOUNT_USDT,
-            "sell",
-        );
-
-        // IDEMPOTENCY CHECK (TASK-008)
-        // Check if an order with this idempotency key already exists to prevent double debits
-        // userId is included so keys generated independently by different users cannot collide.
-        const existingOrder = await this.prisma.order.findFirst({
-            where: { orderReference: dto.idempotencyKey, userId: user.id }
-        });
-
-        if (existingOrder) {
-            this.logger.warn(`Duplicate sell request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`);
-            return buildResponse({
-                message: "Order placed successfully (Duplicate request processed)",
-                data: existingOrder,
-            });
-        }
-
-        const sendAmountToSeller = +responseData.totalToReceiveInFiat;
-        const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
-
-        // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
-        const holdAmount = totalCryptoToAdmin;
-
-        // Use idempotencyKey for deterministic hold reference
-        // This physically prevents a second hold for the same request at the DB level
-        const holdReference = `sell-hold:${dto.idempotencyKey}`;
-
-        await this.reserveSellOrderFunds(user, dto, currency, holdAmount, holdReference);
-
-        // Wrap post-hold logic in try/catch to release hold if any step fails
-        // This prevents funds from being stuck in HOLD status indefinitely
-        let holdSettled = false;
-        try {
-            // Use idempotencyKey as the official Order Reference
-            const reference = dto.idempotencyKey;
-
-            // OMNIBUS VIRTUAL BALANCE SYSTEM
-            // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
-            // We just settle the ledger hold to confirm the debit from user's virtual balance
-
-            this.logger.log(
-                `[Omnibus] Settling virtual balance for sell order | User: ${user.id} | Amount: ${totalCryptoToAdmin} ${dto.asset}`
-            );
-
-            // Settle the hold (converts HOLD to confirmed DEBIT)
-            // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
-            const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
-                holdReference,
-                settle: true, // settle = true converts hold to debit
-                description: `Sell order: ${reference}`,
-                createPlatformEntry: true
-            });
-
-            if (!settleResult.success) {
-                this.logger.error(
-                    `Failed to settle hold for sell order: ${settleResult.error}`
-                );
-                throw new GeneralTransactionException(
-                    `Failed to process sell order: ${settleResult.error}`,
-                    HttpStatus.INTERNAL_SERVER_ERROR
-                );
-            }
-
-            holdSettled = true;
-
-            // Reuse the rate already computed in calculateSellQuote to avoid drift between
-            // the quoted amount and the persisted amountInFiat / rateAtConversion.
-            const quotedRate = responseData.sellRate;
-            const amountInFiat = +responseData.cryptoSellAmount * quotedRate;
-
-            const order = await this.prisma.order.create({
-                data: {
-                    orderCategory: OrderCategory.SELL,
-                    status: OrderStatus.processing,
-                    streamlinedStatus: getStreamlinedStatus(OrderStatus.processing),
-                    orderReference: reference,
-                    transactionId: generateId({ type: "transaction" }),
-                    userId: user.id,
-                    currency: dto.asset.toUpperCase(),
-                    narration: "Flipxer sell order",
-                    transaction_note: "Flipxer sell order",
-                    amount: +responseData.cryptoSellAmount,
-                    fee: +responseData.transactionFeeInCrypto,
-                    total: +responseData.totalCostInCrypto,
-                    totalToReceiveInFiat: sendAmountToSeller,
-                    sourceType: "omnibus", // Flag: no Quidax transfer, virtual balance only
-                    destinationBankName: dto.bankDetail.bankName,
-                    destinationBankAccountNumber: dto.bankDetail.accountNumber,
-                    destinationBankAccountName: dto.bankDetail.accountName,
-                    destinationBankCode: dto.bankDetail.bankCode,
-                    amountInFiat: amountInFiat,
-                    rateAtConversion: quotedRate,
-                    sender: `${user.lastName} ${user.firstName}`,
-                    ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
-                },
-            });
-
-            //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
-
-            // Emit transaction update for new sell order
-            this.wsGateway.notifyTransactionUpdate(user.id, {
-                type: "transaction_update",
-                transaction: {
-                    id: order.id,
-                    transactionId: order.transactionId,
-                    status: order.status,
-                    streamlinedStatus: order.streamlinedStatus,
-                    orderCategory: order.orderCategory,
-                    amount: order.amount,
-                    currency: order.currency,
-                    createdAt: order.createdAt,
-                    updatedAt: order.updatedAt,
-                },
-            });
-
-            // Provider wallet metadata is optional for sell flows.
-            this.triggerBestEffortWalletSync(user.id, dto.asset);
-
-            // Invalidate admin wallet cache since company wallet received funds
-            await this.walletManagementService.invalidateWalletCache();
-
-            // Emit wallet update for sell order (balance changes with sell)
-            this.wsGateway.notifyWalletUpdate(user.id);
-
-            // Create and send notification for processing
-            const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
-
-            await this.notificationDispatcher.notify({
-                userId: user.id,
-                title: "Sell order initiated",
-                body: message,
-                category: "transaction",
-                currency: order.currency,
-                transactionType: OrderCategory.SELL,
-                enablePush: true,
-            });
-            // OMNIBUS: Sell order is "complete" from ledger perspective immediately
-            // Trigger fiat payout handler since virtual balance is already debited
-            this.logger.log(`[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`);
-
-            // Wait for payout initiation so synchronous Nomba failures still roll back immediately.
-            // Final SELL completion now happens only after Nomba transfer webhooks confirm success.
-            try {
-                await this.withdrawalWebhookHandler.initiateFiatPayout(order);
-
-                this.logger.log(
-                    `[Omnibus] Sell Order ${order.id} payout initiated successfully - awaiting Nomba confirmation webhook`
+                const responseData = await this.calculateSellQuote(
+                    user,
+                    dto,
+                    true,
                 );
 
-                // Re-fetch order from DB to return the latest status after payout processing
-                const freshOrder = await this.prisma.order.findUnique({
-                    where: { id: order.id },
+                await this.tradeHelpers.validateMinimumAmountInUSDT(
+                    dto.amount,
+                    currency,
+                    MIN_SELL_AMOUNT_USDT,
+                    "sell",
+                );
+
+                // IDEMPOTENCY CHECK (TASK-008)
+                // Check if an order with this idempotency key already exists to prevent double debits
+                // userId is included so keys generated independently by different users cannot collide.
+                const existingOrder = await this.prisma.order.findFirst({
+                    where: {
+                        orderReference: dto.idempotencyKey,
+                        userId: user.id,
+                    },
                 });
 
-                return buildResponse({
-                    message: "Order placed successfully, Payment is processing",
-                    data: freshOrder ?? order,
-                });
-            } catch (payoutError) {
-                await this.handlePayoutFailure(user, dto, order, payoutError, holdReference, totalCryptoToAdmin);
-            }
-        } catch (error) {
-            // Only attempt to release the hold if settlement never completed.
-            // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
-            // and the payout-failure branch already runs pairedCredit to reverse the debit.
-            if (!holdSettled) {
-                await this.cancelHoldOnFailure(holdReference, error);
-            }
-            throw error;
-        }
+                if (existingOrder) {
+                    this.logger.warn(
+                        `Duplicate sell request detected (Idempotency Key: ${dto.idempotencyKey}) - Returning existing order`,
+                    );
+                    return buildResponse({
+                        message:
+                            "Order placed successfully (Duplicate request processed)",
+                        data: existingOrder,
+                    });
+                }
+
+                const sendAmountToSeller = +responseData.totalToReceiveInFiat;
+                const totalCryptoToAdmin = +responseData.totalCryptoToAdmin;
+
+                // Virtual Balance: HOLD the crypto amount on user's ledger before proceeding
+                const holdAmount = totalCryptoToAdmin;
+
+                // Use idempotencyKey for deterministic hold reference
+                // This physically prevents a second hold for the same request at the DB level
+                const holdReference = `sell-hold:${dto.idempotencyKey}`;
+
+                await this.reserveSellOrderFunds(
+                    user,
+                    dto,
+                    currency,
+                    holdAmount,
+                    holdReference,
+                );
+
+                // Wrap post-hold logic in try/catch to release hold if any step fails
+                // This prevents funds from being stuck in HOLD status indefinitely
+                let holdSettled = false;
+                try {
+                    // Use idempotencyKey as the official Order Reference
+                    const reference = dto.idempotencyKey;
+
+                    // OMNIBUS VIRTUAL BALANCE SYSTEM
+                    // In omnibus mode, crypto is already in the main wallet - no Quidax transfer needed
+                    // We just settle the ledger hold to confirm the debit from user's virtual balance
+
+                    this.logger.log(
+                        `[Omnibus] Settling virtual balance for sell order | User: ${user.id} | Amount: ${totalCryptoToAdmin} ${dto.asset}`,
+                    );
+
+                    // Settle the hold (converts HOLD to confirmed DEBIT)
+                    // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
+                    const settleResult =
+                        await this.ledgerService.releaseHoldWithPlatformEntry({
+                            holdReference,
+                            settle: true, // settle = true converts hold to debit
+                            description: `Sell order: ${reference}`,
+                            createPlatformEntry: true,
+                        });
+
+                    if (!settleResult.success) {
+                        this.logger.error(
+                            `Failed to settle hold for sell order: ${settleResult.error}`,
+                        );
+                        throw new GeneralTransactionException(
+                            `Failed to process sell order: ${settleResult.error}`,
+                            HttpStatus.INTERNAL_SERVER_ERROR,
+                        );
+                    }
+
+                    holdSettled = true;
+
+                    // Reuse the rate already computed in calculateSellQuote to avoid drift between
+                    // the quoted amount and the persisted amountInFiat / rateAtConversion.
+                    const quotedRate = responseData.sellRate;
+                    const amountInFiat =
+                        +responseData.cryptoSellAmount * quotedRate;
+
+                    const order = await this.prisma.order.create({
+                        data: {
+                            orderCategory: OrderCategory.SELL,
+                            status: OrderStatus.processing,
+                            streamlinedStatus: getStreamlinedStatus(
+                                OrderStatus.processing,
+                            ),
+                            orderReference: reference,
+                            transactionId: generateId({ type: "transaction" }),
+                            userId: user.id,
+                            currency: dto.asset.toUpperCase(),
+                            narration: "Flipxer sell order",
+                            transaction_note: "Flipxer sell order",
+                            amount: +responseData.cryptoSellAmount,
+                            fee: +responseData.transactionFeeInCrypto,
+                            total: +responseData.totalCostInCrypto,
+                            totalToReceiveInFiat: sendAmountToSeller,
+                            sourceType: "omnibus", // Flag: no Quidax transfer, virtual balance only
+                            destinationBankName: dto.bankDetail.bankName,
+                            destinationBankAccountNumber:
+                                dto.bankDetail.accountNumber,
+                            destinationBankAccountName:
+                                dto.bankDetail.accountName,
+                            destinationBankCode: dto.bankDetail.bankCode,
+                            amountInFiat: amountInFiat,
+                            rateAtConversion: quotedRate,
+                            sender: `${user.lastName} ${user.firstName}`,
+                            ledgerEntryId: settleResult.userEntry?.id, // Link to ledger entry (from settled hold)
+                        },
+                    });
+
+                    //step 2: once step 1 is successfully completed (webhook listener), send fund to user bank account from paystack main account
+
+                    // Emit transaction update for new sell order
+                    this.wsGateway.notifyTransactionUpdate(user.id, {
+                        type: "transaction_update",
+                        transaction: {
+                            id: order.id,
+                            transactionId: order.transactionId,
+                            status: order.status,
+                            streamlinedStatus: order.streamlinedStatus,
+                            orderCategory: order.orderCategory,
+                            amount: order.amount,
+                            currency: order.currency,
+                            createdAt: order.createdAt,
+                            updatedAt: order.updatedAt,
+                        },
+                    });
+
+                    // Provider wallet metadata is optional for sell flows.
+                    this.triggerBestEffortWalletSync(user.id, dto.asset);
+
+                    // Invalidate admin wallet cache since company wallet received funds
+                    await this.walletManagementService.invalidateWalletCache();
+
+                    // Emit wallet update for sell order (balance changes with sell)
+                    this.wsGateway.notifyWalletUpdate(user.id);
+
+                    // Create and send notification for processing
+                    const message = `Your sell order of ${order.amount} ${order.currency.toUpperCase()} is processing. Transaction ID: ${order.transactionId}`;
+
+                    await this.notificationDispatcher.notify({
+                        userId: user.id,
+                        title: "Sell order initiated",
+                        body: message,
+                        category: "transaction",
+                        currency: order.currency,
+                        transactionType: OrderCategory.SELL,
+                        enablePush: true,
+                    });
+                    // OMNIBUS: Sell order is "complete" from ledger perspective immediately
+                    // Trigger fiat payout handler since virtual balance is already debited
+                    this.logger.log(
+                        `[Omnibus] Sell Order ${order.id} ledger debit complete - triggering fiat payout | Reference: ${reference}`,
+                    );
+
+                    // Wait for payout initiation so synchronous Nomba failures still roll back immediately.
+                    // Final SELL completion now happens only after Nomba transfer webhooks confirm success.
+                    try {
+                        await this.withdrawalWebhookHandler.initiateFiatPayout(
+                            order,
+                        );
+
+                        this.logger.log(
+                            `[Omnibus] Sell Order ${order.id} payout initiated successfully - awaiting Nomba confirmation webhook`,
+                        );
+
+                        // Re-fetch order from DB to return the latest status after payout processing
+                        const freshOrder = await this.prisma.order.findUnique({
+                            where: { id: order.id },
+                        });
+
+                        return buildResponse({
+                            message:
+                                "Order placed successfully, Payment is processing",
+                            data: freshOrder ?? order,
+                        });
+                    } catch (payoutError) {
+                        await this.handlePayoutFailure(
+                            user,
+                            dto,
+                            order,
+                            payoutError,
+                            holdReference,
+                            totalCryptoToAdmin,
+                        );
+                    }
+                } catch (error) {
+                    // Only attempt to release the hold if settlement never completed.
+                    // Once releaseHoldWithPlatformEntry(settle:true) succeeds the hold no longer exists,
+                    // and the payout-failure branch already runs pairedCredit to reverse the debit.
+                    if (!holdSettled) {
+                        await this.cancelHoldOnFailure(holdReference, error);
+                    }
+                    throw error;
+                }
             },
             { ttlMs: 30000, maxWaitMs: 5000, strict: true },
         );
     }
 
     /** Best-effort hold cancellation when sellCryptoOrder fails before settlement. */
-    private async cancelHoldOnFailure(holdReference: string, error: unknown): Promise<void> {
+    private async cancelHoldOnFailure(
+        holdReference: string,
+        error: unknown,
+    ): Promise<void> {
         const errorMsg = this.formatError(error);
-        this.logger.error(`Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`);
+        this.logger.error(
+            `Sell order failed before settlement, attempting to cancel hold: ${errorMsg}`,
+        );
         try {
-            await this.ledgerService.releaseHold(holdReference, false, `Sell order failed: ${errorMsg}`);
-            this.logger.log(`Cancelled hold for failed sell order | Reference: ${holdReference}`);
+            await this.ledgerService.releaseHold(
+                holdReference,
+                false,
+                `Sell order failed: ${errorMsg}`,
+            );
+            this.logger.log(
+                `Cancelled hold for failed sell order | Reference: ${holdReference}`,
+            );
         } catch (releaseError) {
-            this.logger.error(`Failed to cancel hold after sell order failure: ${this.formatError(releaseError)}`);
+            this.logger.error(
+                `Failed to cancel hold after sell order failure: ${this.formatError(releaseError)}`,
+            );
         }
     }
 
@@ -420,15 +477,23 @@ export class SellOrderService {
         totalCryptoToAdmin: number,
     ): Promise<never> {
         const payoutMessage = this.formatError(payoutError);
-        const payoutStack = payoutError instanceof Error ? payoutError.stack : undefined;
+        const payoutStack =
+            payoutError instanceof Error ? payoutError.stack : undefined;
         this.logger.error(
             `Payout initiation failed for Order ${order.id}: ${payoutMessage}`,
-            payoutStack
+            payoutStack,
         );
 
         // CRITICAL FIX: Hold was already SETTLED (releaseHoldWithPlatformEntry with settle: true).
         // We need to CREDIT back the user's virtual balance because the hold no longer exists.
-        await this.attemptPayoutRefund(user, dto, order, holdReference, totalCryptoToAdmin, payoutMessage);
+        await this.attemptPayoutRefund(
+            user,
+            dto,
+            order,
+            holdReference,
+            totalCryptoToAdmin,
+            payoutMessage,
+        );
 
         // Update order to failed status
         await this.prisma.order.update({
@@ -443,12 +508,12 @@ export class SellOrderService {
 
         // Notify user of failure
         this.wsGateway.notifyTransactionUpdate(user.id, {
-            type: 'transaction_update',
+            type: "transaction_update",
             transaction: {
                 id: order.id,
                 transactionId: order.transactionId,
                 status: OrderStatus.failed,
-                streamlinedStatus: 'failed',
+                streamlinedStatus: "failed",
                 orderCategory: order.orderCategory,
                 amount: Number(order.amount),
                 currency: order.currency,
@@ -468,19 +533,19 @@ export class SellOrderService {
             enableEmail: true,
             emailPayload: {
                 email: user.email,
-                transactionType: 'sell',
+                transactionType: "sell",
                 transactionId: order.transactionId,
                 amount: String(order.amount),
                 currency: order.currency.toUpperCase(),
-                status: 'failed',
+                status: "failed",
                 date: new Date().toISOString(),
             },
             enablePush: true,
         });
 
         throw new HttpException(
-            'Sell order failed - payout could not be initiated. Your funds have been released.',
-            HttpStatus.INTERNAL_SERVER_ERROR
+            "Sell order failed - payout could not be initiated. Your funds have been released.",
+            HttpStatus.INTERNAL_SERVER_ERROR,
         );
     }
 
@@ -503,25 +568,30 @@ export class SellOrderService {
                 type: LedgerType.REFUND,
                 reference: `${holdReference}:refund`,
                 description: `Refund: Payout initiation failed`,
-                createPlatformEntry: true
+                createPlatformEntry: true,
             });
 
             if (refundResult.success) {
-                this.logger.log(`Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`);
+                this.logger.log(
+                    `Refunded ${totalCryptoToAdmin} ${dto.asset} after payout failure | Entry: ${refundResult.userEntry?.id}`,
+                );
                 this.triggerBestEffortWalletSync(user.id, dto.asset);
             } else {
-                throw new Error(`Refund ledger entry failed: ${refundResult.error}`);
+                throw new Error(
+                    `Refund ledger entry failed: ${refundResult.error}`,
+                );
             }
         } catch (refundError) {
             const refundMessage = this.formatError(refundError);
-            const refundStack = refundError instanceof Error ? refundError.stack : undefined;
+            const refundStack =
+                refundError instanceof Error ? refundError.stack : undefined;
             this.logger.error(
                 `CRITICAL: Failed to REFUND user after payout failure: ${refundMessage}`,
-                refundStack
+                refundStack,
             );
             // Alert admin - funds are definitely stuck (User debited, Payout failed, Refund failed).
             await this.slackWebhookService.sendWebhookFailureAlert(
-                'sell',
+                "sell",
                 holdReference,
                 `🚨 CRITICAL: Sell order payout failed AND refund failed! MANUAL INTERVENTION REQUIRED.`,
                 {
@@ -539,14 +609,14 @@ export class SellOrderService {
      * Executes the Internal Sell Leg of a Swap (User -> Admin)
      * Does NOT create a DB Order (SwapService handles that for atomicity).
      * Returns the Quidax API response.
-     * 
+     *
      * Virtual Balance: HOLD -> Settle (debit) the source currency
      */
     async executeInternalSell(
         user: User,
         amount: number,
         currency: string,
-        reference: string
+        reference: string,
     ) {
         const currencyUpper = currency.toUpperCase();
         const holdReference = `swap-sell-hold:${reference}`;
@@ -563,11 +633,15 @@ export class SellOrderService {
 
         if (!holdResult.success) {
             this.logger.error(
-                `Failed to hold funds for swap sell leg: ${holdResult.error}`
+                `Failed to hold funds for swap sell leg: ${holdResult.error}`,
             );
             throw new InsufficientBalanceException(
                 `Insufficient ${currencyUpper} balance for swap. ${holdResult.error}`,
-                { currency: currencyUpper, requiredAmount: amount, error: holdResult.error }
+                {
+                    currency: currencyUpper,
+                    requiredAmount: amount,
+                    error: holdResult.error,
+                },
             );
         }
 
@@ -576,27 +650,34 @@ export class SellOrderService {
         // We just settle the ledger hold to confirm the debit from user's virtual balance
 
         this.logger.log(
-            `[Omnibus] Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`
+            `[Omnibus] Executing Internal Sell for Swap | User: ${user.id} | Amount: ${amount} ${currency} | Ref: ${reference}`,
         );
 
         // Settle the hold (converts HOLD to confirmed DEBIT)
         // DOUBLE ENTRY: releaseHoldWithPlatformEntry ensures platform liability (credit) is created (reduced)
-        const settleResult = await this.ledgerService.releaseHoldWithPlatformEntry({
-            holdReference,
-            settle: true, // settle = true converts hold to debit
-            description: `Swap sell leg: ${reference}`,
-            createPlatformEntry: true
-        });
+        const settleResult =
+            await this.ledgerService.releaseHoldWithPlatformEntry({
+                holdReference,
+                settle: true, // settle = true converts hold to debit
+                description: `Swap sell leg: ${reference}`,
+                createPlatformEntry: true,
+            });
 
         if (!settleResult.success) {
             this.logger.error(
-                `Failed to settle hold for swap sell leg: ${settleResult.error}`
+                `Failed to settle hold for swap sell leg: ${settleResult.error}`,
             );
             // Settlement failed — the hold is still active. Cancel it so funds are not stuck.
             try {
-                await this.ledgerService.releaseHold(holdReference, false, `Swap sell settle failed: ${settleResult.error}`);
+                await this.ledgerService.releaseHold(
+                    holdReference,
+                    false,
+                    `Swap sell settle failed: ${settleResult.error}`,
+                );
             } catch (releaseError) {
-                this.logger.error(`Failed to cancel hold after swap sell settle failure: ${releaseError.message}`);
+                this.logger.error(
+                    `Failed to cancel hold after swap sell settle failure: ${releaseError.message}`,
+                );
             }
             throw new Error(`Ledger settle failed: ${settleResult.error}`);
         }

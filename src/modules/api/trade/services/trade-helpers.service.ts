@@ -13,7 +13,7 @@ import { RateService } from "./rate.service";
 
 /**
  * Trade Helpers Service
- * 
+ *
  * Provides utility methods for trading operations including:
  * - Network name normalization
  * - Input validation helpers
@@ -25,22 +25,22 @@ export class TradeHelpersService {
      * Set of all supported network types from Prisma enum
      */
     private readonly supportedNetworkSet = new Set<string>(
-        Object.values(NetworkTypes)
+        Object.values(NetworkTypes),
     );
-    constructor(private readonly rateService: RateService) { }
+    constructor(private readonly rateService: RateService) {}
 
     /**
      * Normalizes various network name formats to standardized NetworkTypes enum values.
-     * 
+     *
      * Handles cases like:
      * - Direct matches: "trc20" → NetworkTypes.trc20
      * - Aliases: "tron" → NetworkTypes.trc20
      * - Compound formats: "tron_trc20" → NetworkTypes.trc20
      * - Case insensitive: "TRC20", "Trc20" → NetworkTypes.trc20
-     * 
+     *
      * @param network - Raw network string from user input or API
      * @returns Normalized NetworkTypes enum value, or null if not recognized
-     * 
+     *
      * @example
      * normalizeNetworkInput("trc20")       // → NetworkTypes.trc20
      * normalizeNetworkInput("tron_trc20")  // → NetworkTypes.trc20
@@ -95,7 +95,7 @@ export class TradeHelpersService {
 
     /**
      * Validates if a given network string is supported.
-     * 
+     *
      * @param network - The network string to validate
      * @returns True if the network is recognized and supported
      */
@@ -105,7 +105,7 @@ export class TradeHelpersService {
 
     /**
      * Gets the network display name from a NetworkTypes enum value.
-     * 
+     *
      * @param network - The NetworkTypes enum value
      * @returns Human-readable network name
      */
@@ -136,14 +136,15 @@ export class TradeHelpersService {
 
     /**
      * Parses and validates a cryptocurrency amount string.
-     * 
+     *
      * @param amount - The amount string to parse
      * @param minAmount - Optional minimum allowed amount
      * @returns Parsed number or null if invalid
      */
     parseAmount(amount: string | number, minAmount?: number): number | null {
-        const parsed = typeof amount === "number" ? amount : Number.parseFloat(amount);
-        
+        const parsed =
+            typeof amount === "number" ? amount : Number.parseFloat(amount);
+
         if (Number.isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
             return null;
         }
@@ -157,7 +158,7 @@ export class TradeHelpersService {
 
     /**
      * Formats a cryptocurrency amount with appropriate decimal places.
-     * 
+     *
      * @param amount - The amount to format
      * @param decimals - Number of decimal places (default: 8)
      * @returns Formatted amount string
@@ -165,14 +166,14 @@ export class TradeHelpersService {
     formatAmount(amount: number, decimals: number = 8): string {
         const str = amount.toFixed(decimals);
         let end = str.length - 1;
-        while (end > 0 && str[end] === '0') end--;
-        if (str[end] === '.') end--;
+        while (end > 0 && str[end] === "0") end--;
+        if (str[end] === ".") end--;
         return str.substring(0, end + 1);
     }
 
     /**
      * Formats a fiat currency amount.
-     * 
+     *
      * @param amount - The amount to format
      * @param currency - Currency code (default: "NGN")
      * @returns Formatted currency string
@@ -188,19 +189,19 @@ export class TradeHelpersService {
 
     /**
      * Safely stringifies an object for logging, handling BigInt values.
-     * 
+     *
      * @param data - Object to stringify
      * @returns JSON string with BigInt values converted to strings
      */
     safeJsonStringify(data: Record<string, unknown>): string {
         return JSON.stringify(data, (_, value) =>
-            typeof value === "bigint" ? value.toString() : value
+            typeof value === "bigint" ? value.toString() : value,
         );
     }
 
     ensureSupportedTradeAsset(
         asset: string,
-        tradeType: "buy" | "sell" | "swap"
+        tradeType: "buy" | "sell" | "swap",
     ): string {
         const normalizedAsset = String(asset ?? "")
             .trim()
@@ -220,7 +221,7 @@ export class TradeHelpersService {
         amount: number,
         asset: string,
         minimumAmountInUsdt: number,
-        tradeType: "buy" | "sell" | "swap"
+        tradeType: "buy" | "sell" | "swap",
     ): Promise<void> {
         if (!Number.isFinite(minimumAmountInUsdt) || minimumAmountInUsdt <= 0) {
             return;

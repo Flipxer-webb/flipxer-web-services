@@ -1,5 +1,7 @@
 import {
     checkNameInText,
+    combineAddressSignals,
+    detectAddressDocumentType,
     extractTextFromDocument,
     extractDocumentDate,
     OcrDocumentPreparationError,
@@ -192,6 +194,19 @@ describe("Document Date Extraction (extractDocumentDate)", () => {
     });
 });
 
+describe("Address document type detection", () => {
+    it("keeps bank statements with bill-payment transactions classified as bank statements", () => {
+        const text = [
+            "Bank Statement",
+            "Account number 0123456789",
+            "Transaction: BILL PAYMENT IKEDC electricity",
+            "Debit 12000 Balance 50000",
+        ].join("\n");
+
+        expect(detectAddressDocumentType(text)).toBe("BANK_STATEMENT");
+    });
+});
+
 describe("Document Recency (isDocumentRecent)", () => {
     it("should return true for a recent date (1 month ago)", () => {
         const oneMonthAgo = new Date();
@@ -251,8 +266,14 @@ describe("OCR Extraction (extractTextFromDocument)", () => {
 
             child.stdin = {
                 end: jest.fn(() => {
-                    writeFileSync(`${outputPrefix}-1.png`, Buffer.from("page-1-image"));
-                    writeFileSync(`${outputPrefix}-2.png`, Buffer.from("page-2-image"));
+                    writeFileSync(
+                        `${outputPrefix}-1.png`,
+                        Buffer.from("page-1-image"),
+                    );
+                    writeFileSync(
+                        `${outputPrefix}-2.png`,
+                        Buffer.from("page-2-image"),
+                    );
                     setImmediate(() => child.emit("close", 0));
                 }),
                 once: jest.fn(),
@@ -274,7 +295,10 @@ describe("OCR Extraction (extractTextFromDocument)", () => {
                 },
             });
 
-        const result = await extractTextFromDocument(Buffer.from("%PDF-1.7"), "application/pdf");
+        const result = await extractTextFromDocument(
+            Buffer.from("%PDF-1.7"),
+            "application/pdf",
+        );
 
         expect(mockSpawn).toHaveBeenCalledTimes(1);
         expect(mockSpawn.mock.calls[0][0]).toBe("/usr/bin/pdftoppm");
@@ -327,11 +351,111 @@ describe("Document Validators", () => {
         mockRecognize.mockReset();
     });
 
+    it("lets provider signals rescue a low-confidence address document", () => {
+        const result = combineAddressSignals({
+            confidence: 25,
+            extractedText: "",
+            matchedName: false,
+            matchedAddress: false,
+            matchedResidentialAddress: null,
+            addressDocumentType: null,
+            documentDate: null,
+            providerSignals: {
+                documentType: "Utility Bill",
+                nameMatches: true,
+                documentDate: new Date().toISOString(),
+                country: "Nigeria",
+                countryCode: "NG",
+            },
+        });
+
+        expect(result.decision).toBe("APPROVE");
+        expect(result.isValid).toBe(true);
+        expect(result.isAllowedDocumentType).toBe(true);
+        expect(result.matchedName).toBe(true);
+        expect(result.addressDocumentType).toBe("UTILITY_BILL");
+    });
+
+    it("routes an address document to review when Nigeria cannot be confirmed", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe Utility Bill 10 Main Street Date ${todayIso}`,
+                confidence: 94,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.decision).toBe("REVIEW");
+        expect(result.reason).toContain(
+            "Document country could not be confirmed as Nigeria",
+        );
+    });
+
+    it("rejects an address document when provider country is not Nigeria", () => {
+        const result = combineAddressSignals({
+            confidence: 95,
+            extractedText: "John Doe Utility Bill 10 Main Street",
+            matchedName: true,
+            matchedAddress: true,
+            matchedResidentialAddress: true,
+            addressDocumentType: "UTILITY_BILL",
+            documentDate: new Date(),
+            providerSignals: {
+                documentType: "Utility Bill",
+                nameMatches: true,
+                documentDate: new Date().toISOString(),
+                country: "Ghana",
+                countryCode: "GH",
+            },
+        });
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toBe(
+            "Only Nigerian proof of address documents are accepted. Please upload a valid Nigerian address document.",
+        );
+    });
+
+    it("routes conflicting address name signals to manual review", () => {
+        const result = combineAddressSignals({
+            confidence: 95,
+            extractedText: "John Doe Utility Bill",
+            matchedName: false,
+            matchedAddress: true,
+            matchedResidentialAddress: false,
+            addressDocumentType: "UTILITY_BILL",
+            documentDate: new Date(),
+            providerSignals: {
+                documentType: "Utility Bill",
+                nameMatches: true,
+                documentDate: new Date().toISOString(),
+                country: "Nigeria",
+                countryCode: "NG",
+            },
+        });
+
+        expect(result.decision).toBe("REVIEW");
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.reason).toContain(
+            "Document owner details could not be confidently confirmed",
+        );
+    });
+
     it("should auto-approve a strong address document", async () => {
         const todayIso = new Date().toISOString().slice(0, 10);
         mockRecognize.mockResolvedValue({
             data: {
-                text: `John Doe 10 Main Street Lagos Nigeria Bill Date ${todayIso}`,
+                text: `John Doe 10 Main Street Lagos Nigeria Electricity Bill Meter Number 12345 Date ${todayIso}`,
                 confidence: 95,
             },
         });
@@ -340,7 +464,7 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "10 Main Street Lagos"
+            "10 Main Street Lagos",
         );
 
         expect(result.isValid).toBe(true);
@@ -349,6 +473,8 @@ describe("Document Validators", () => {
         expect(result.matchedAddress).toBe(true);
         expect(result.matchedResidentialAddress).toBe(true);
         expect(result.isRecent).toBe(true);
+        expect(result.addressDocumentType).toBe("UTILITY_BILL");
+        expect(result.isAllowedDocumentType).toBe(true);
     });
 
     it("should flag address document when extraction is too weak", async () => {
@@ -363,7 +489,7 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "10 Main Street Lagos"
+            "10 Main Street Lagos",
         );
 
         expect(result.isValid).toBe(false);
@@ -387,18 +513,19 @@ describe("Document Validators", () => {
             Buffer.from("doc"),
             "John",
             "Doe",
-            "Doe Close Abuja"
+            "Doe Close Abuja",
         );
 
         expect(result.isValid).toBe(false);
         expect(result.requiresManualReview).toBe(true);
         expect(result.reason).toContain("Low document quality");
-        expect(result.reason).toContain("Name not clearly visible");
-        expect(result.reason).toContain("Address not clearly visible");
-        expect(result.reason).toContain("older than 3 months");
+        expect(result.reason).toContain("User name could not be confirmed");
+        expect(result.reason).toContain(
+            "Address details could not be confirmed",
+        );
     });
 
-    it("should flag address document when OCR text does not match the stored residential address", async () => {
+    it("does not reject solely because the profile residential address text differs", async () => {
         const todayIso = new Date().toISOString().slice(0, 10);
         mockRecognize.mockResolvedValue({
             data: {
@@ -414,12 +541,85 @@ describe("Document Validators", () => {
             "10 Main Street Lagos",
         );
 
-        expect(result.isValid).toBe(false);
+        expect(result.isValid).toBe(true);
         expect(result.matchedResidentialAddress).toBe(false);
-        expect(result.reason).toContain("Residential address does not match the profile address");
+        expect(result.reason).toBeUndefined();
     });
 
-    it("should auto-approve a strong income document", async () => {
+    it("should auto-reject a strong address document when the user name is missing", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `Utility Bill 99 Broad Street Abuja Nigeria Date ${todayIso}`,
+                confidence: 94,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street Lagos",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toContain("does not carry your name");
+    });
+
+    it("should auto-reject an old address document when OCR is otherwise clear", async () => {
+        const oldDate = new Date();
+        oldDate.setMonth(oldDate.getMonth() - 6);
+        const oldDateIso = oldDate.toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe Utility Bill 10 Main Street Lagos Nigeria Date ${oldDateIso}`,
+                confidence: 94,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street Lagos",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toContain("older than 3 months");
+    });
+
+    it("should reject an unsupported address document type", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe Employment Reference Letter 10 Main Street Lagos Nigeria Date ${todayIso}`,
+                confidence: 94,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street Lagos",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.matchedAddress).toBe(false);
+        expect(result.addressDocumentType).toBeNull();
+        expect(result.isAllowedDocumentType).toBe(false);
+        expect(result.reason).toBe(
+            "Please upload a valid address verification document.",
+        );
+    });
+
+    it("routes a valid Nigerian bank statement to manual review", async () => {
         const todayIso = new Date().toISOString().slice(0, 10);
         mockRecognize.mockResolvedValue({
             data: {
@@ -431,16 +631,144 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.decision).toBe("REVIEW");
+        expect(result.matchedName).toBe(true);
+        expect(result.isRecent).toBe(true);
+        expect(result.countryConfirmed).toBe(true);
+        expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
+        expect(result.isAllowedDocumentType).toBe(true);
+    });
+
+    it("uses provider raw text when structured income type and date are missing", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: "John Doe salary payment",
+                confidence: 92,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            undefined,
+            {
+                isValid: true,
+                reason: "VALID",
+                documentType: "",
+                rawText: `Statement of Account\nJohn Doe\nNGN Lagos Nigeria\nStatement Date ${todayIso}`,
+                nameMatches: true,
+                countryCode: "NG",
+            },
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.decision).toBe("REVIEW");
+        expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
+        expect(result.documentDate).toBeDefined();
+        expect(result.isRecent).toBe(true);
+        expect(result.countryConfirmed).toBe(true);
+        expect(result.providerVerified).toBe(true);
+    });
+
+    it("routes provider-valid Nigerian bank statements with no extractable date to review", async () => {
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: "John Doe bank statement salary credit NGN Lagos Nigeria",
+                confidence: 92,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            undefined,
+            {
+                isValid: true,
+                reason: "VALID",
+                documentType: "",
+                rawText:
+                    "Income ReadyUser 12 Idowu Taylor Street Victoria Island Lagos Nigeria",
+                nameMatches: true,
+                countryCode: "NG",
+            },
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(true);
+        expect(result.decision).toBe("REVIEW");
+        expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
+        expect(result.documentDate).toBeUndefined();
+        expect(result.isRecent).toBe(false);
+        expect(result.reason).toContain("statement date");
+    });
+
+    it("recognizes major Nigerian banks as country hints for income statements", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `Stanbic IBTC Bank statement of account John Doe salary payment Date ${todayIso}`,
+                confidence: 92,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+        );
+
+        expect(result.decision).toBe("REVIEW");
+        expect(result.countryConfirmed).toBe(true);
+        expect(result.incomeDocumentType).toBe("BANK_STATEMENT");
+        expect(result.reason).not.toBe(
+            "Please upload a valid Nigerian bank statement.",
+        );
+    });
+
+    it("uses provider raw text when structured address type and date are missing", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: "John Doe 10 Main Street",
+                confidence: 92,
+            },
+        });
+
+        const result = await validateAddressDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            "10 Main Street Lagos",
+            undefined,
+            {
+                isValid: true,
+                reason: "VALID",
+                documentType: "",
+                rawText: `Utility Bill\nJohn Doe\n10 Main Street Lagos Nigeria\nStatement Date ${todayIso}`,
+                nameMatches: true,
+                countryCode: "NG",
+            },
         );
 
         expect(result.isValid).toBe(true);
-        expect(result.requiresManualReview).toBe(false);
-        expect(result.matchedName).toBe(true);
+        expect(result.decision).toBe("APPROVE");
+        expect(result.addressDocumentType).toBe("UTILITY_BILL");
+        expect(result.documentDate).toBeDefined();
         expect(result.isRecent).toBe(true);
+        expect(result.countryConfirmed).toBe(true);
+        expect(result.providerVerified).toBe(true);
     });
 
-    it("should flag income document with missing income indicators", async () => {
+    it("rejects an income document that is not a bank statement", async () => {
         const todayIso = new Date().toISOString().slice(0, 10);
         mockRecognize.mockResolvedValue({
             data: {
@@ -452,11 +780,116 @@ describe("Document Validators", () => {
         const result = await validateIncomeDocument(
             Buffer.from("doc"),
             "John",
-            "Doe"
+            "Doe",
         );
 
         expect(result.isValid).toBe(false);
-        expect(result.requiresManualReview).toBe(true);
-        expect(result.reason).toContain("Income information not clearly visible");
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toContain("Only bank statements are accepted");
+    });
+
+    it("rejects a bank statement when the profile name does not match", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `Jane Doe bank statement debit credit NGN Date ${todayIso}`,
+                confidence: 88,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toContain(
+            "does not match the name on your profile",
+        );
+    });
+
+    it("rejects a bank statement when Nigeria cannot be confirmed", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe bank statement debit credit account Date ${todayIso}`,
+                confidence: 90,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toBe(
+            "Please upload a valid Nigerian bank statement.",
+        );
+    });
+
+    it("rejects an income document older than 3 months", async () => {
+        const oldDate = new Date();
+        oldDate.setMonth(oldDate.getMonth() - 6);
+        const oldDateIso = oldDate.toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe bank statement NGN credit debit Lagos Date ${oldDateIso}`,
+                confidence: 91,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.reason).toContain("older than 3 months");
+    });
+
+    it("rejects a bank statement when provider analysis flags it as a copied or fake document", async () => {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        mockRecognize.mockResolvedValue({
+            data: {
+                text: `John Doe bank statement salary credit NGN Lagos Date ${todayIso}`,
+                confidence: 93,
+            },
+        });
+
+        const result = await validateIncomeDocument(
+            Buffer.from("doc"),
+            "John",
+            "Doe",
+            undefined,
+            {
+                isValid: false,
+                reason: "Printed photocopy detected",
+                documentType: "Bank Statement",
+                nameMatches: true,
+                documentDate: todayIso,
+                country: "Nigeria",
+                countryCode: "NG",
+            },
+        );
+
+        expect(result.isValid).toBe(false);
+        expect(result.requiresManualReview).toBe(false);
+        expect(result.decision).toBe("REJECT");
+        expect(result.providerVerified).toBe(false);
+        expect(result.providerReason).toBe("Printed photocopy detected");
+        expect(result.reason).toBe(
+            "This bank statement could not be verified as an original document. Please upload an original Nigerian bank statement that shows your full name.",
+        );
     });
 });

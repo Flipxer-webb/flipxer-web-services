@@ -21,7 +21,11 @@ describe("EmailService", () => {
     it("delegates sendMail", async () => {
         client.sendMail.mockResolvedValue({ accepted: ["user@test.com"] });
 
-        await expect(service.sendMail({ to: [{ email_address: { address: "user@test.com" } }] } as never)).resolves.toEqual({
+        await expect(
+            service.sendMail({
+                to: [{ email_address: { address: "user@test.com" } }],
+            } as never),
+        ).resolves.toEqual({
             accepted: ["user@test.com"],
         });
     });
@@ -29,15 +33,22 @@ describe("EmailService", () => {
     it("delegates sendBatchMail", async () => {
         client.mailBatchWithTemplate.mockResolvedValue({ total: 2 });
 
-        await expect(service.sendBatchMail({ template_key: "template" } as never)).resolves.toEqual({ total: 2 });
+        await expect(
+            service.sendBatchMail({ template_key: "template" } as never),
+        ).resolves.toEqual({ total: 2 });
     });
 
     it("logs and returns sendMailWithTemplate success", async () => {
         client.sendMailWithTemplate.mockResolvedValue({ request_id: "req-1" });
-        const logSpy = jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
+        const logSpy = jest
+            .spyOn((service as any).logger, "log")
+            .mockImplementation(() => undefined);
 
         await expect(
-            service.sendMailWithTemplate({ to: [{ email_address: { address: "ok@test.com" } }], template_key: "welcome" } as never),
+            service.sendMailWithTemplate({
+                to: [{ email_address: { address: "ok@test.com" } }],
+                template_key: "welcome",
+            } as never),
         ).resolves.toEqual({ request_id: "req-1" });
         expect(logSpy).toHaveBeenCalled();
 
@@ -50,10 +61,15 @@ describe("EmailService", () => {
     it("logs and rethrows sendMailWithTemplate errors", async () => {
         const err = new Error("template send failed");
         client.sendMailWithTemplate.mockRejectedValue(err);
-        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn((service as any).logger, "error")
+            .mockImplementation(() => undefined);
 
         await expect(
-            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+            service.sendMailWithTemplate({
+                to: [{ email_address: { address: "bad@test.com" } }],
+                template_key: "x",
+            } as never),
         ).rejects.toThrow("template send failed");
         expect(errorSpy).toHaveBeenCalled();
     });
@@ -66,10 +82,15 @@ describe("EmailService", () => {
             },
         };
         client.sendMailWithTemplate.mockRejectedValue(err);
-        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn((service as any).logger, "error")
+            .mockImplementation(() => undefined);
 
         await expect(
-            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+            service.sendMailWithTemplate({
+                to: [{ email_address: { address: "bad@test.com" } }],
+                template_key: "x",
+            } as never),
         ).rejects.toEqual(err);
 
         expect(errorSpy).toHaveBeenCalledWith(
@@ -81,10 +102,15 @@ describe("EmailService", () => {
     it("prefers a top-level message on non-Error failures", async () => {
         const err = { message: "temporary outage" };
         client.sendMailWithTemplate.mockRejectedValue(err);
-        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn((service as any).logger, "error")
+            .mockImplementation(() => undefined);
 
         await expect(
-            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+            service.sendMailWithTemplate({
+                to: [{ email_address: { address: "bad@test.com" } }],
+                template_key: "x",
+            } as never),
         ).rejects.toEqual(err);
 
         expect(errorSpy).toHaveBeenCalledWith(
@@ -96,10 +122,15 @@ describe("EmailService", () => {
     it("falls back to stringifying unknown non-Error failures", async () => {
         const err = { status: 503, retryable: true };
         client.sendMailWithTemplate.mockRejectedValue(err);
-        const errorSpy = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        const errorSpy = jest
+            .spyOn((service as any).logger, "error")
+            .mockImplementation(() => undefined);
 
         await expect(
-            service.sendMailWithTemplate({ to: [{ email_address: { address: "bad@test.com" } }], template_key: "x" } as never),
+            service.sendMailWithTemplate({
+                to: [{ email_address: { address: "bad@test.com" } }],
+                template_key: "x",
+            } as never),
         ).rejects.toEqual(err);
 
         expect(errorSpy).toHaveBeenCalledWith(

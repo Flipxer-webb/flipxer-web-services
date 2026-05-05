@@ -17,7 +17,7 @@ export class QuidaxValidationError extends QuidaxError {
     name = "QuidaxValidationError";
     status = 400;
     code?: string; // E.g., E0101 for "user already exists"
-    
+
     constructor(message: string, code?: string) {
         super(message);
         this.code = code;
@@ -34,7 +34,10 @@ export class QuidaxTooManyRequestError extends QuidaxError {
     status = 429;
 }
 
-function isQuidaxCloudflareBlock(error: { status?: number; message?: string }): boolean {
+function isQuidaxCloudflareBlock(error: {
+    status?: number;
+    message?: string;
+}): boolean {
     if (error.status !== 403 || typeof error.message !== "string") {
         return false;
     }
@@ -70,7 +73,11 @@ export function isQuidaxThrottleError(error: unknown): boolean {
             return true;
         }
 
-        if (status === 403 && "message" in error && typeof error.message === "string") {
+        if (
+            status === 403 &&
+            "message" in error &&
+            typeof error.message === "string"
+        ) {
             return isQuidaxCloudflareBlock({ status, message: error.message });
         }
 

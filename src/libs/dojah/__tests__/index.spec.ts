@@ -296,9 +296,54 @@ describe("DojahLib", () => {
         expect(parsed.countryCode).toBe("NG");
         expect(parsed.firstName).toBe("Jane");
         expect(parsed.lastName).toBe("Doe");
+        expect(parsed.rawText).toBe("Jane\nDoe\nA12345");
         expect(parsed.hasPortrait).toBe(true);
         expect(parsed.hasFrontSide).toBe(true);
         expect(parsed.hasBackSide).toBe(false);
+        expect(parsed.hasExtractedText).toBe(true);
+    });
+
+    it("parseDocumentData keeps raw text and falls back country name from NG code", () => {
+        const lib = new DojahLib(options);
+
+        const parsed = lib.parseDocumentData({
+            entity: {
+                status: {
+                    overall_status: 1,
+                    reason: "VALID",
+                    document_images: "No",
+                    text: "Yes",
+                    document_type: "No",
+                    expiry: "Not Checked",
+                },
+                document_type: {
+                    document_name: "",
+                    document_country_name: "",
+                    document_country_code: "NG",
+                },
+                document_images: {},
+                text_data: [
+                    {
+                        field_name: "Address",
+                        field_key: "address",
+                        status: 1,
+                        value: "12 Idowu Taylor Street Victoria Island Lagos Nigeria",
+                    },
+                    {
+                        field_name: "Date of Issue",
+                        field_key: "issue_date",
+                        status: 2,
+                        value: "",
+                    },
+                ],
+            },
+        } as any);
+
+        expect(parsed.country).toBe("Nigeria");
+        expect(parsed.countryCode).toBe("NG");
+        expect(parsed.rawText).toBe(
+            "12 Idowu Taylor Street Victoria Island Lagos Nigeria",
+        );
         expect(parsed.hasExtractedText).toBe(true);
     });
 
@@ -311,7 +356,7 @@ describe("DojahLib", () => {
                     status: 401,
                     data: { error: "unauthorized" },
                 },
-            })
+            }),
         ).toThrow(DojahAuthorizationError);
     });
 
@@ -324,7 +369,7 @@ describe("DojahLib", () => {
                     status: 400,
                     data: { error: "invalid" },
                 },
-            })
+            }),
         ).toThrow(DojahValidationError);
     });
 
@@ -337,7 +382,7 @@ describe("DojahLib", () => {
                     status: 429,
                     data: { error: "rate limited" },
                 },
-            })
+            }),
         ).toThrow(DojahTooManyRequestError);
     });
 
@@ -350,7 +395,7 @@ describe("DojahLib", () => {
                     status: 402,
                     data: { error: "low balance" },
                 },
-            })
+            }),
         ).toThrow(DojahLowBalanceError);
 
         expect(() =>
@@ -359,7 +404,7 @@ describe("DojahLib", () => {
                     status: 404,
                     data: { error: "not found" },
                 },
-            })
+            }),
         ).toThrow(DojahNotFoundError);
 
         expect(() =>
@@ -368,7 +413,7 @@ describe("DojahLib", () => {
                     status: 405,
                     data: { error: "method" },
                 },
-            })
+            }),
         ).toThrow(DojahMethodNotFoundError);
 
         expect(() =>
@@ -377,7 +422,7 @@ describe("DojahLib", () => {
                     status: 408,
                     data: { error: "timeout" },
                 },
-            })
+            }),
         ).toThrow(DojahRequestTimeoutError);
 
         expect(() =>
@@ -386,7 +431,7 @@ describe("DojahLib", () => {
                     status: 424,
                     data: { error: "third-party failed" },
                 },
-            })
+            }),
         ).toThrow(DojahThirdPartyServiceFailureError);
     });
 
@@ -414,7 +459,60 @@ describe("DojahLib", () => {
             });
         } catch (error) {
             expect(error).toBeInstanceOf(DojahNetworkError);
-            expect((error as Error).message).toContain("Could not reach Dojah API");
+            expect((error as Error).message).toContain(
+                "Could not reach Dojah API",
+            );
+        }
+    });
+
+    it("preserves upstream 424 status for third-party service failures", () => {
+        const error = new DojahThirdPartyServiceFailureError(
+            "third-party failed",
+        );
+
+        expect(error.status).toBe(424);
+    });
+
+    it("preserves raw Dojah error data and request metadata on mapped failures", () => {
+        const lib = new DojahLib(options) as any;
+
+        try {
+            lib.handleDojahError({
+                config: {
+                    baseURL: options.baseURL,
+                    url: "/api/v1/document/analysis",
+                    method: "post",
+                    data: {
+                        input_type: "base64",
+                        imagefrontside: "front-base64",
+                    },
+                },
+                response: {
+                    status: 424,
+                    data: {
+                        error: "third-party failed",
+                        code: "DOC_ANALYSIS_UNAVAILABLE",
+                    },
+                },
+            });
+
+            throw new Error("Expected Dojah error to be thrown");
+        } catch (error) {
+            expect(error).toBeInstanceOf(DojahThirdPartyServiceFailureError);
+            expect(error).toMatchObject({
+                status: 424,
+                responseBody: {
+                    error: "third-party failed",
+                    code: "DOC_ANALYSIS_UNAVAILABLE",
+                },
+                requestMetadata: {
+                    method: "POST",
+                    url: "/api/v1/document/analysis",
+                    baseURL: options.baseURL,
+                    hasParams: false,
+                    dataKeys: ["input_type", "imagefrontside"],
+                },
+            });
         }
     });
 

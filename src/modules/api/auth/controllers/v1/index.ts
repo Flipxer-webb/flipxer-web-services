@@ -14,7 +14,11 @@ import {
     UseInterceptors,
     ValidationPipe,
 } from "@nestjs/common";
-import { RateLimiterGuard, StrictRateLimit, RateLimit } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
+import {
+    RateLimiterGuard,
+    StrictRateLimit,
+    RateLimit,
+} from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { Request } from "express";
 import {
     BvnVerificationDto,
@@ -46,10 +50,12 @@ import {
     Verify2FALoginDto,
     VerifyAddressUploadFormDto,
     VerifyIncomeUploadFormDto,
+    IndividualKycStageFileUploadFormDto,
     CreateTradingPasswordDto,
 } from "../../dtos";
 
 import { AuthService } from "../../services";
+import { IndividualKycStageService } from "../../services/individual-kyc-stage.service";
 import { TierVerificationService } from "../../services/tier-verification.service";
 import {
     ApiTags,
@@ -60,7 +66,12 @@ import {
 } from "@nestjs/swagger";
 import { AuthGuard, CountryBlockGuard } from "../../guard";
 import { User } from "@/modules/api/user/decorators";
-import { DocumentType, User as UserModel, UserType } from "@prisma/client";
+import {
+    DocumentType,
+    KycMethod,
+    User as UserModel,
+    UserType,
+} from "@prisma/client";
 import { RoleGuard } from "@/modules/api/authorize/guards/role.guard";
 import { UserTypes } from "@/modules/api/authorize/decorator";
 import {
@@ -89,8 +100,20 @@ export class AuthController {
 
     constructor(
         private readonly authService: AuthService,
-        private readonly tierVerificationService: TierVerificationService
-    ) { }
+        private readonly tierVerificationService: TierVerificationService,
+        private readonly individualKycStageService: IndividualKycStageService,
+    ) {}
+
+    private parseKycMethod(value?: string): KycMethod | undefined {
+        if (!value) {
+            return undefined;
+        }
+
+        const normalized = value.trim().toUpperCase();
+        return Object.values(KycMethod).includes(normalized as KycMethod)
+            ? (normalized as KycMethod)
+            : undefined;
+    }
 
     @UseGuards(RateLimiterGuard)
     @StrictRateLimit()
@@ -98,7 +121,7 @@ export class AuthController {
     @ApiOperation({ summary: "individual and business signup" })
     async signUp(
         @Body(ValidationPipe) signUpDto: SignUpDto,
-        @Req() req: Request
+        @Req() req: Request,
     ) {
         return await this.authService.signUp(signUpDto, req.ip);
     }
@@ -110,7 +133,7 @@ export class AuthController {
     @ApiOperation({ summary: "user login" })
     async signIn(
         @Body(ValidationPipe) signInDto: UserSigInDto,
-        @Req() req: Request
+        @Req() req: Request,
     ) {
         return await this.authService.userSignIn(signInDto, req.ip);
     }
@@ -122,7 +145,7 @@ export class AuthController {
     @ApiOperation({ summary: "verify 2FA code to complete login" })
     async verify2FALogin(
         @Body(ValidationPipe) dto: Verify2FALoginDto,
-        @Req() req: Request
+        @Req() req: Request,
     ) {
         return await this.authService.verify2FALogin(dto, req.ip);
     }
@@ -134,10 +157,10 @@ export class AuthController {
     @ApiOperation({ summary: "initiate email verification process" })
     async sendAccountVerificationEmail(
         @Body(ValidationPipe)
-        sendVerificationCodeDto: SendEmailVerificationCodeDto
+        sendVerificationCodeDto: SendEmailVerificationCodeDto,
     ) {
         return await this.authService.sendAccountVerificationEmail(
-            sendVerificationCodeDto
+            sendVerificationCodeDto,
         );
     }
 
@@ -147,7 +170,7 @@ export class AuthController {
     @Post("verify-email-otp")
     @ApiOperation({ summary: "verify email verification otp" })
     async verifyEmailOtp(
-        @Body(ValidationPipe) verifyEmailOtpDto: VerifyEmailOtpDto
+        @Body(ValidationPipe) verifyEmailOtpDto: VerifyEmailOtpDto,
     ) {
         return await this.authService.verifyEmailOtp(verifyEmailOtpDto);
     }
@@ -159,7 +182,7 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async createPassword(
         @User() user: UserModel,
-        @Body(ValidationPipe) createPasswordDto: CreatePasswordDto
+        @Body(ValidationPipe) createPasswordDto: CreatePasswordDto,
     ) {
         return await this.authService.createPassword(user, createPasswordDto);
     }
@@ -168,10 +191,13 @@ export class AuthController {
     @UseGuards(AuthGuard)
     @HttpCode(HttpStatus.OK)
     @Post("onboard-individual")
-    @ApiOperation({ summary: "onboard user with individual account - save basic profile info" })
+    @ApiOperation({
+        summary:
+            "onboard user with individual account - save basic profile info",
+    })
     async onboardIndividual(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: OnboardIndividualDto
+        @Body(ValidationPipe) dto: OnboardIndividualDto,
     ) {
         return await this.authService.onboardIndividual(user, dto);
     }
@@ -185,10 +211,10 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async bvnVerification(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: BvnVerificationDto
+        @Body(ValidationPipe) dto: BvnVerificationDto,
     ) {
         this.logger.debug(
-            `[KYC][CTRL][BVN] Request received for user ${user.id} (bvn=${this.maskSensitiveId(dto.bvn)})`
+            `[KYC][CTRL][BVN] Request received for user ${user.id} (bvn=${this.maskSensitiveId(dto.bvn)})`,
         );
         return await this.authService.bvnVerification(user, dto);
     }
@@ -201,10 +227,10 @@ export class AuthController {
     @ApiOperation({ summary: "verify user with individual account NIN" })
     async ninVerification(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: NinVerificationDto
+        @Body(ValidationPipe) dto: NinVerificationDto,
     ) {
         this.logger.debug(
-            `[KYC][CTRL][NIN] Request received for user ${user.id} (nin=${this.maskSensitiveId(dto.nin)})`
+            `[KYC][CTRL][NIN] Request received for user ${user.id} (nin=${this.maskSensitiveId(dto.nin)})`,
         );
         return await this.authService.ninVerification(user, dto);
     }
@@ -217,7 +243,7 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async sendPhoneVerificationOtp(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: SendPhoneVerificationCodeDto
+        @Body(ValidationPipe) dto: SendPhoneVerificationCodeDto,
     ) {
         return await this.authService.sendPhoneVerificationOtp(user, dto);
     }
@@ -230,7 +256,7 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async verifyPhoneOtp(
         @User() user: UserModel,
-        @Body(ValidationPipe) verifyPhoneOtpDto: VerifyPhoneOtpDto
+        @Body(ValidationPipe) verifyPhoneOtpDto: VerifyPhoneOtpDto,
     ) {
         return await this.authService.verifyPhoneOtp(user, verifyPhoneOtpDto);
     }
@@ -257,15 +283,20 @@ export class AuthController {
             ],
             {
                 storage: memoryStorage(),
-                limits: { fileSize: 10 * 1024 * 1024, files: 2, fields: 10, parts: 15 },
-            }
-        )
+                limits: {
+                    fileSize: 10 * 1024 * 1024,
+                    files: 2,
+                    fields: 10,
+                    parts: 15,
+                },
+            },
+        ),
     )
     async documentVerification(
         @User() user: UserModel,
         @UploadedFiles()
         files: DocumentVerificationFileInterface,
-        @Body(ValidationPipe) dto: DocumentVerificationDto
+        @Body(ValidationPipe) dto: DocumentVerificationDto,
     ) {
         if (
             !files.documentImage1 ||
@@ -287,13 +318,15 @@ export class AuthController {
     @HttpCode(HttpStatus.OK)
     @Post("verify-document-base64")
     @ApiOperation({
-        summary: "Document verification with base64-encoded images (Dojah-optimized)",
-        description: "Upload document images as base64 strings. Removes data:image prefix before sending. Simpler than multipart/form-data.",
+        summary:
+            "Document verification with base64-encoded images (Dojah-optimized)",
+        description:
+            "Upload document images as base64 strings. Removes data:image prefix before sending. Simpler than multipart/form-data.",
     })
     @ApiBearerAuth("access-token")
     async documentVerificationBase64(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: DocumentVerificationBase64Dto
+        @Body(ValidationPipe) dto: DocumentVerificationBase64Dto,
     ) {
         // Validate that front image is provided
         if (!dto.imageFrontBase64) {
@@ -313,17 +346,274 @@ export class AuthController {
     @Post("preview-document")
     @ApiOperation({
         summary: "Preview document using Dojah OCR (no database save)",
-        description: "Analyzes document images and returns extracted data for user verification before final submission. Does not save anything to database.",
+        description:
+            "Analyzes document images and returns extracted data for user verification before final submission. Does not save anything to database.",
     })
     @ApiBearerAuth("access-token")
     async previewDocument(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: DocumentPreviewDto
+        @Body(ValidationPipe) dto: DocumentPreviewDto,
     ) {
         if (!dto.imageFrontBase64) {
             throw new RequiredFilesMissing();
         }
         return await this.authService.previewDocument(user, dto);
+    }
+
+    @UseGuards(AuthGuard)
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/identity-document/preview")
+    @ApiOperation({
+        summary:
+            "Preview identity-document stage using the staged KYC contract",
+        description:
+            "Stage-based compatibility route for identity-document preview. Uses current Dojah OCR preview logic and returns the additive stage response shape.",
+    })
+    @ApiBearerAuth("access-token")
+    async previewIdentityDocumentStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentPreviewDto,
+    ) {
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewIdentityDocument(
+            user,
+            dto,
+        );
+    }
+
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/identity-document/submit")
+    @ApiOperation({
+        summary: "Submit identity-document stage using the staged KYC contract",
+        description:
+            "Stage-based compatibility route for identity-document submit. Writes legacy records and the additive stage-attempt/evidence tables.",
+    })
+    @ApiBearerAuth("access-token")
+    async submitIdentityDocumentStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: DocumentVerificationBase64Dto,
+    ) {
+        if (!dto.imageFrontBase64) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitIdentityDocument(
+            user,
+            dto,
+        );
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/government-id/bvn/submit")
+    @ApiOperation({
+        summary: "Submit government-id BVN stage using the staged KYC contract",
+        description:
+            "Stage-based compatibility route for BVN submit. Writes legacy identity records and the additive government-id stage-attempt table.",
+    })
+    async submitGovernmentIdBvnStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: BvnVerificationDto,
+    ) {
+        this.logger.debug(
+            `[KYC][CTRL][BVN_STAGE] Request received for user ${user.id} (bvn=${this.maskSensitiveId(dto.bvn)})`,
+        );
+
+        return await this.individualKycStageService.submitGovernmentIdBvn(
+            user,
+            dto,
+        );
+    }
+
+    @ApiBearerAuth("access-token")
+    @UseGuards(RateLimiterGuard, AuthGuard)
+    @StrictRateLimit()
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/government-id/nin/submit")
+    @ApiOperation({
+        summary: "Submit government-id NIN stage using the staged KYC contract",
+        description:
+            "Stage-based compatibility route for NIN submit. Writes legacy identity records and the additive government-id stage-attempt table.",
+    })
+    async submitGovernmentIdNinStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: NinVerificationDto,
+    ) {
+        this.logger.debug(
+            `[KYC][CTRL][NIN_STAGE] Request received for user ${user.id} (nin=${this.maskSensitiveId(dto.nin)})`,
+        );
+
+        return await this.individualKycStageService.submitGovernmentIdNin(
+            user,
+            dto,
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/address/preview")
+    @ApiOperation({
+        summary: "Preview address stage using the staged KYC contract",
+    })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Address-stage preview file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB stage upload cap is paired with strict rate limits.
+                files: 1,
+                fields: 6,
+                parts: 12,
+            },
+        }),
+    )
+    async previewAddressStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewAddressDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/address/submit")
+    @ApiOperation({
+        summary: "Submit address stage using the staged KYC contract",
+    })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Address-stage submit file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB stage upload cap is paired with strict rate limits.
+                files: 1,
+                fields: 6,
+                parts: 12,
+            },
+        }),
+    )
+    async submitAddressStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitAddressDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/income/preview")
+    @ApiOperation({
+        summary: "Preview income stage using the staged KYC contract",
+    })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Income-stage preview file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB stage upload cap is paired with strict rate limits.
+                files: 1,
+                fields: 6,
+                parts: 12,
+            },
+        }),
+    )
+    async previewIncomeStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.previewIncomeDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
+    }
+
+    @UseGuards(AuthGuard, RateLimiterGuard)
+    @RateLimit({ limit: 5, windowSeconds: 3600 })
+    @HttpCode(HttpStatus.OK)
+    @Post("kyc/individual/stages/income/submit")
+    @ApiOperation({
+        summary: "Submit income stage using the staged KYC contract",
+    })
+    @ApiConsumes("multipart/form-data")
+    @ApiBody({
+        type: IndividualKycStageFileUploadFormDto,
+        description: "Income-stage submit file and optional method override",
+    })
+    @ApiBearerAuth("access-token")
+    @UseInterceptors(
+        FileInterceptor("document", {
+            storage: memoryStorage(),
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB stage upload cap is paired with strict rate limits.
+                files: 1,
+                fields: 6,
+                parts: 12,
+            },
+        }),
+    )
+    async submitIncomeStage(
+        @User() user: UserModel,
+        @Body(ValidationPipe) dto: IndividualKycStageFileUploadFormDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        if (!file) {
+            throw new RequiredFilesMissing();
+        }
+
+        return await this.individualKycStageService.submitIncomeDocument(
+            user,
+            file,
+            this.parseKycMethod(dto.method),
+        );
     }
 
     /**
@@ -337,15 +627,16 @@ export class AuthController {
     @Post("submit-dojah-verification")
     @ApiOperation({
         summary: "Submit Dojah Widget verification result",
-        description: "Receives verification data from Dojah Widget and saves the verification record to the database.",
+        description:
+            "Receives verification data from Dojah Widget and saves the verification record to the database.",
     })
     @ApiBearerAuth("access-token")
     async submitDojahVerification(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: DojahWidgetVerificationDto
+        @Body(ValidationPipe) dto: DojahWidgetVerificationDto,
     ) {
         this.logger.log(
-            `[DojahRoute] submit-dojah-verification hit: userId=${user.id}, hasVerificationId=${!!dto.verificationId}, hasReferenceId=${!!dto.referenceId}, hasIdData=${!!dto.idData}`
+            `[DojahRoute] submit-dojah-verification hit: userId=${user.id}, hasVerificationId=${!!dto.verificationId}, hasReferenceId=${!!dto.referenceId}, hasIdData=${!!dto.idData}`,
         );
         return await this.authService.submitDojahWidgetVerification(user, dto);
     }
@@ -359,7 +650,7 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async submitBusinessRecord(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: SubmitBusinessRecordDto
+        @Body(ValidationPipe) dto: SubmitBusinessRecordDto,
     ) {
         return await this.authService.submitBusinessRecord(user, dto);
     }
@@ -394,15 +685,20 @@ export class AuthController {
             ],
             {
                 storage: memoryStorage(),
-                limits: { fileSize: 20 * 1024 * 1024, files: 5, fields: 10, parts: 20 },
-            }
-        )
+                limits: {
+                    fileSize: 20 * 1024 * 1024,
+                    files: 5,
+                    fields: 10,
+                    parts: 20,
+                },
+            },
+        ),
     )
     async updloadBusinessDocuments(
         @User() user: UserModel,
         @UploadedFiles()
         files: UploadBusinessDocumentsFileInterface,
-        @Body(ValidationPipe) body: BusinessDocumentUploadDto
+        @Body(ValidationPipe) body: BusinessDocumentUploadDto,
     ) {
         if (!files?.cacImage?.length || !files.cacImage[0]) {
             throw new RequiredFilesMissing();
@@ -411,7 +707,7 @@ export class AuthController {
         return await this.authService.updloadBusinessDocuments(
             user,
             files,
-            body
+            body,
         );
     }
 
@@ -435,13 +731,18 @@ export class AuthController {
     @UseInterceptors(
         FileInterceptor("file", {
             storage: memoryStorage(),
-            limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
-        })
+            limits: {
+                fileSize: 20 * 1024 * 1024,
+                files: 1,
+                fields: 5,
+                parts: 10,
+            },
+        }),
     )
     async uploadBusinessDocumentFile(
         @User() user: UserModel,
         @UploadedFile() file: Express.Multer.File,
-        @Body(ValidationPipe) body: UploadBusinessDocumentFileDto
+        @Body(ValidationPipe) body: UploadBusinessDocumentFileDto,
     ) {
         if (!file) {
             throw new RequiredFilesMissing();
@@ -450,7 +751,7 @@ export class AuthController {
         return await this.authService.uploadSingleBusinessDocumentFile(
             user,
             file,
-            body
+            body,
         );
     }
 
@@ -468,11 +769,11 @@ export class AuthController {
     @Post("submit-business-documents")
     async submitBusinessDocuments(
         @User() user: UserModel,
-        @Body(ValidationPipe) body: SubmitBusinessDocumentsDto
+        @Body(ValidationPipe) body: SubmitBusinessDocumentsDto,
     ) {
         return await this.authService.submitBusinessDocumentsFromUrls(
             user,
-            body
+            body,
         );
     }
 
@@ -482,7 +783,7 @@ export class AuthController {
     @Get("admin-invite/validate")
     @ApiOperation({ summary: "validate admin invite token" })
     async validateAdminInvite(
-        @Query(ValidationPipe) dto: ValidateAdminInviteDto
+        @Query(ValidationPipe) dto: ValidateAdminInviteDto,
     ) {
         return await this.authService.validateAdminInvite(dto);
     }
@@ -492,9 +793,7 @@ export class AuthController {
     @HttpCode(HttpStatus.OK)
     @Post("admin-invite/accept")
     @ApiOperation({ summary: "accept admin invite and create password" })
-    async acceptAdminInvite(
-        @Body(ValidationPipe) dto: AcceptAdminInviteDto
-    ) {
+    async acceptAdminInvite(@Body(ValidationPipe) dto: AcceptAdminInviteDto) {
         return await this.authService.acceptAdminInvite(dto);
     }
 
@@ -522,7 +821,7 @@ export class AuthController {
     @ApiOperation({ summary: "refresh user access token" })
     @Post("refresh-token")
     async refreshToken(
-        @Body(ValidationPipe) refreshTokenDto: RefreshTokenDto
+        @Body(ValidationPipe) refreshTokenDto: RefreshTokenDto,
     ): Promise<ApiResponse> {
         return await this.authService.refreshToken(refreshTokenDto);
     }
@@ -533,7 +832,9 @@ export class AuthController {
     @RateLimit({ limit: 5, windowSeconds: 3600 })
     @HttpCode(HttpStatus.OK)
     @Post("verify-address")
-    @ApiOperation({ summary: "Upload proof of address for Tier 2 verification" })
+    @ApiOperation({
+        summary: "Upload proof of address for Tier 2 verification",
+    })
     @ApiConsumes("multipart/form-data")
     @ApiBody({
         type: VerifyAddressUploadFormDto,
@@ -543,12 +844,17 @@ export class AuthController {
     @UseInterceptors(
         FileInterceptor("document", {
             storage: memoryStorage(),
-            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
-        })
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB document upload cap is paired with route rate limits.
+                files: 1,
+                fields: 5,
+                parts: 10,
+            },
+        }),
     )
     async verifyAddress(
         @User() user: UserModel,
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFile() file: Express.Multer.File,
     ) {
         if (!file) {
             throw new RequiredFilesMissing();
@@ -564,18 +870,24 @@ export class AuthController {
     @ApiConsumes("multipart/form-data")
     @ApiBody({
         type: VerifyIncomeUploadFormDto,
-        description: "Income proof document (payslip, bank statement, tax document)",
+        description:
+            "Income proof document (payslip, bank statement, tax document)",
     })
     @ApiBearerAuth("access-token")
     @UseInterceptors(
         FileInterceptor("document", {
             storage: memoryStorage(),
-            limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5, parts: 10 },
-        })
+            limits: {
+                fileSize: 5 * 1024 * 1024, // NOSONAR: 5 MiB document upload cap is paired with route rate limits.
+                files: 1,
+                fields: 5,
+                parts: 10,
+            },
+        }),
     )
     async verifyIncome(
         @User() user: UserModel,
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFile() file: Express.Multer.File,
     ) {
         if (!file) {
             throw new RequiredFilesMissing();
@@ -590,9 +902,12 @@ export class AuthController {
     @ApiBearerAuth("access-token")
     async createTradingPassword(
         @User() user: UserModel,
-        @Body(ValidationPipe) dto: CreateTradingPasswordDto
+        @Body(ValidationPipe) dto: CreateTradingPasswordDto,
     ) {
-        return await this.tierVerificationService.createTradingPassword(user, dto);
+        return await this.tierVerificationService.createTradingPassword(
+            user,
+            dto,
+        );
     }
 
     @UseGuards(AuthGuard)
@@ -612,6 +927,4 @@ export class AuthController {
     async getVerificationStatus(@User() user: UserModel) {
         return await this.tierVerificationService.getVerificationStatus(user);
     }
-
-
 }

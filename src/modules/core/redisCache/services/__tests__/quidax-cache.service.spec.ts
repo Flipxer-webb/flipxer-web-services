@@ -21,12 +21,23 @@ describe("QuidaxCacheService", () => {
             getMarketTickers: jest.fn(),
         };
 
-        service = new QuidaxCacheService(redisCacheService as any, quidaxService as any);
+        service = new QuidaxCacheService(
+            redisCacheService as any,
+            quidaxService as any,
+        );
 
-        jest.spyOn((service as any).logger, "debug").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "log").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "warn").mockImplementation(() => undefined);
-        jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+        jest.spyOn((service as any).logger, "debug").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "warn").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((service as any).logger, "error").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -39,7 +50,9 @@ describe("QuidaxCacheService", () => {
 
         const result = await service.getMarketTickers();
 
-        expect(redisCacheService.get).toHaveBeenCalledWith("quidax:market:tickers");
+        expect(redisCacheService.get).toHaveBeenCalledWith(
+            "quidax:market:tickers",
+        );
         expect(quidaxService.getMarketTickers).not.toHaveBeenCalled();
         expect(result).toEqual(cached);
     });
@@ -72,7 +85,9 @@ describe("QuidaxCacheService", () => {
         redisCacheService.get
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ stale: true });
-        quidaxService.getMarketTickers.mockRejectedValue(new Error("provider down"));
+        quidaxService.getMarketTickers.mockRejectedValue(
+            new Error("provider down"),
+        );
 
         const result = await service.getMarketTickers();
 
@@ -96,7 +111,9 @@ describe("QuidaxCacheService", () => {
 
         expect(first).toEqual({ stale: true });
         expect(second).toEqual({ stale: true });
-        expect((service as any).marketTickersThrottleUntil).toBeGreaterThan(Date.now());
+        expect((service as any).marketTickersThrottleUntil).toBeGreaterThan(
+            Date.now(),
+        );
         expect(quidaxService.getMarketTickers).toHaveBeenCalledTimes(1);
     });
 
@@ -136,7 +153,9 @@ describe("QuidaxCacheService", () => {
         redisCacheService.get
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce(null);
-        quidaxService.getMarketTickers.mockRejectedValueOnce(new Error("timeout"));
+        quidaxService.getMarketTickers.mockRejectedValueOnce(
+            new Error("timeout"),
+        );
 
         await expect(service.getMarketTickers()).resolves.toEqual({
             btcngn: { buy: "9000" },
@@ -176,7 +195,9 @@ describe("QuidaxCacheService", () => {
 
         let resolveApi!: (v: any) => void;
         quidaxService.getMarketTickers.mockReturnValue(
-            new Promise((res) => { resolveApi = res; }),
+            new Promise((res) => {
+                resolveApi = res;
+            }),
         );
 
         const first = service.getMarketTickers();

@@ -22,20 +22,23 @@ export class AssetBalanceSchedulerService {
         private readonly prisma: PrismaService,
         private readonly cryptoAccountProducer: CryptoAccountQueueProducer,
         private readonly tradingService: TradingService,
-        private readonly distributedLockService: DistributedLockService
+        private readonly distributedLockService: DistributedLockService,
     ) {}
 
     private isStalePendingWalletAddress(updatedAt: Date): boolean {
-        return Date.now() - updatedAt.getTime() >= this.walletAddressPendingMaxAgeMs;
+        return (
+            Date.now() - updatedAt.getTime() >=
+            this.walletAddressPendingMaxAgeMs
+        );
     }
 
     private async markWalletAddressFailed(
         id: number,
         walletAddressId: string,
-        reason: string
+        reason: string,
     ): Promise<void> {
         this.logger.warn(
-            `[WALLET SYNC] Address ${walletAddressId} ${reason} — marking as FAILED`
+            `[WALLET SYNC] Address ${walletAddressId} ${reason} — marking as FAILED`,
         );
         await this.prisma.cryptoWalletAddress.update({
             where: { id },
@@ -52,24 +55,25 @@ export class AssetBalanceSchedulerService {
         const release = await this.mutex.acquire();
         let distributedLockToken: string | null = null;
         try {
-            distributedLockToken = await this.distributedLockService.acquireLock(
-                this.balanceSyncLockKey,
-                {
-                    ttlMs: this.balanceSyncLockTtlMs,
-                    maxWaitMs: 0,
-                    strict: true,
-                }
-            );
+            distributedLockToken =
+                await this.distributedLockService.acquireLock(
+                    this.balanceSyncLockKey,
+                    {
+                        ttlMs: this.balanceSyncLockTtlMs,
+                        maxWaitMs: 0,
+                        strict: true,
+                    },
+                );
 
             if (!distributedLockToken) {
                 this.logger.debug(
-                    "Skipping quidax asset balance sync job because another instance already owns the distributed lock"
+                    "Skipping quidax asset balance sync job because another instance already owns the distributed lock",
                 );
                 return;
             }
 
             this.logger.debug(
-                "Acquired lock: Running quidax asset balance sync job"
+                "Acquired lock: Running quidax asset balance sync job",
             );
 
             const users = await this.getEligibleUserIdsForBalanceSync();
@@ -81,21 +85,21 @@ export class AssetBalanceSchedulerService {
                 await Promise.all(
                     batch.map(async (userId) => {
                         await this.cryptoAccountProducer.enqueueSyncBalance(
-                            userId
+                            userId,
                         );
-                    })
+                    }),
                 );
             }
         } catch (error) {
             this.logger.error(
                 "Error in running quidax asset balance sync cron job:",
-                error
+                error,
             );
         } finally {
             if (distributedLockToken) {
                 await this.distributedLockService.releaseLock(
                     this.balanceSyncLockKey,
-                    distributedLockToken
+                    distributedLockToken,
                 );
             }
             release(); // Ensure lock is released even if an error occurs
@@ -132,13 +136,19 @@ export class AssetBalanceSchedulerService {
             }
 
             this.logger.debug(
-                `Found ${pendingAddresses.length} wallet address.`
+                `Found ${pendingAddresses.length} wallet address.`,
             );
 
             // Process transactions in parallel
             await Promise.allSettled(
                 pendingAddresses.map(
-                    async ({ id, walletAddressId, assetSymbol, updatedAt, user }) => {
+                    async ({
+                        id,
+                        walletAddressId,
+                        assetSymbol,
+                        updatedAt,
+                        user,
+                    }) => {
                         try {
                             if (user.cryptoSubAccountId) {
                                 const response =
@@ -147,7 +157,7 @@ export class AssetBalanceSchedulerService {
                                             address_id: walletAddressId,
                                             user_id: user.cryptoSubAccountId,
                                             currency: assetSymbol.toLowerCase(),
-                                        }
+                                        },
                                     );
 
                                 if (response.data.address) {
@@ -160,7 +170,7 @@ export class AssetBalanceSchedulerService {
                                                 response.data.total_payments,
                                             destination_tag:
                                                 response.data.destination_tag,
-                                        }
+                                        },
                                     );
                                 } else if (
                                     this.isStalePendingWalletAddress(updatedAt)
@@ -168,33 +178,36 @@ export class AssetBalanceSchedulerService {
                                     await this.markWalletAddressFailed(
                                         id,
                                         walletAddressId,
-                                        "still has no generated address after 30 minutes"
+                                        "still has no generated address after 30 minutes",
                                     );
                                 }
                             }
                         } catch (error) {
                             // If Quidax returns 404, the address doesn't exist on their side.
                             // Mark it FAILED to stop retrying every 15 minutes.
-                            if (error instanceof QuidaxException && error.getStatus() === 404) {
+                            if (
+                                error instanceof QuidaxException &&
+                                error.getStatus() === 404
+                            ) {
                                 await this.markWalletAddressFailed(
                                     id,
                                     walletAddressId,
-                                    "not found on Quidax (404)"
+                                    "not found on Quidax (404)",
                                 );
                                 return;
                             }
                             this.logger.error(
                                 `Error syncing generated wallet address ${walletAddressId}:`,
-                                error
+                                error,
                             );
                         }
-                    }
-                )
+                    },
+                ),
             );
         } catch (error) {
             this.logger.error(
                 "Error in syncing generated wallet address cron job:",
-                error
+                error,
             );
         } finally {
             release(); // Ensure lock is released even if an error occurs
@@ -243,7 +256,7 @@ export class AssetBalanceSchedulerService {
     /**
      * Fallback deposit sync - runs every 5 minutes to catch any deposits
      * that may have been missed due to webhook failures
-     * 
+     *
      * This is a safety net to ensure all deposits are eventually recorded
      * even if webhooks fail or are delayed
      */
@@ -253,19 +266,24 @@ export class AssetBalanceSchedulerService {
 
         const release = await this.depositSyncMutex.acquire();
         try {
-            this.logger.debug("[DEPOSIT SYNC] Acquired lock: Running fallback deposit sync");
+            this.logger.debug(
+                "[DEPOSIT SYNC] Acquired lock: Running fallback deposit sync",
+            );
 
             // Get users who have had recent activity (logged in within last 7 days)
             // to avoid syncing deposits for inactive accounts
-            const recentlyActiveUsers = await this.getRecentlyActiveUsersWithSubAccounts();
+            const recentlyActiveUsers =
+                await this.getRecentlyActiveUsersWithSubAccounts();
 
             if (recentlyActiveUsers.length === 0) {
-                this.logger.debug("[DEPOSIT SYNC] No recently active users found");
+                this.logger.debug(
+                    "[DEPOSIT SYNC] No recently active users found",
+                );
                 return;
             }
 
             this.logger.log(
-                `[DEPOSIT SYNC] Enqueueing deposit sync for ${recentlyActiveUsers.length} active users`
+                `[DEPOSIT SYNC] Enqueueing deposit sync for ${recentlyActiveUsers.length} active users`,
             );
 
             // Enqueue per-user instead of fanning out Quidax calls directly.
@@ -282,16 +300,19 @@ export class AssetBalanceSchedulerService {
                 } catch (error) {
                     enqueueErrors += 1;
                     this.logger.error(
-                        `[DEPOSIT SYNC] Error enqueueing deposit sync for user ${userId}: ${error?.message}`
+                        `[DEPOSIT SYNC] Error enqueueing deposit sync for user ${userId}: ${error?.message}`,
                     );
                 }
             }
 
             this.logger.log(
-                `[DEPOSIT SYNC] Enqueue complete - Enqueued: ${enqueued}, Errors: ${enqueueErrors}`
+                `[DEPOSIT SYNC] Enqueue complete - Enqueued: ${enqueued}, Errors: ${enqueueErrors}`,
             );
         } catch (error) {
-            this.logger.error("[DEPOSIT SYNC] Error in fallback deposit sync:", error);
+            this.logger.error(
+                "[DEPOSIT SYNC] Error in fallback deposit sync:",
+                error,
+            );
         } finally {
             release();
             this.logger.debug("[DEPOSIT SYNC] Lock released: Job completed");
@@ -303,7 +324,9 @@ export class AssetBalanceSchedulerService {
      */
     async getRecentlyActiveUsersWithSubAccounts(): Promise<number[]> {
         const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - this.activeSyncWindowDays);
+        sevenDaysAgo.setDate(
+            sevenDaysAgo.getDate() - this.activeSyncWindowDays,
+        );
 
         const users = await this.prisma.user.findMany({
             where: {

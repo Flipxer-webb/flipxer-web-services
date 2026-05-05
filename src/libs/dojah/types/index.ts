@@ -48,7 +48,7 @@ export interface VerifyNinResponseData {
 }
 
 export interface DojahResponse<
-    D extends Record<string, any> = Record<string, any>
+    D extends Record<string, any> = Record<string, any>,
 > {
     status: boolean;
     responseCode: number;
@@ -113,6 +113,7 @@ export interface ParsedDocumentData {
     documentType: string;
     country: string;
     countryCode: string;
+    rawText?: string;
     firstName?: string;
     lastName?: string;
     givenNames?: string;

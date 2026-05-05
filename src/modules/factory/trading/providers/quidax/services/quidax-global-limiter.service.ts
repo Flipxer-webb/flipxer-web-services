@@ -1,5 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { QuidaxTooManyRequestError, type QuidaxRequestBudget, type QuidaxRequestBudgetBucket } from "@/libs/quidax";
+import {
+    QuidaxTooManyRequestError,
+    type QuidaxRequestBudget,
+    type QuidaxRequestBudgetBucket,
+} from "@/libs/quidax";
 import { RedisCacheService } from "@/modules/core/redisCache/services/redis-cache.service";
 import { RateLimiterService } from "@/modules/core/rate-limit/services/rate-limiter.service";
 
@@ -28,7 +32,10 @@ export class QuidaxGlobalLimiterService implements QuidaxRequestBudget {
         const activeCooldown = await this.getActiveCooldown(bucket);
 
         if (activeCooldown) {
-            throw this.buildRateLimitError(activeCooldown.retryAfterSeconds, "provider cooldown active");
+            throw this.buildRateLimitError(
+                activeCooldown.retryAfterSeconds,
+                "provider cooldown active",
+            );
         }
 
         const budgetConfig = this.getBucketConfig(bucket);
@@ -50,42 +57,65 @@ export class QuidaxGlobalLimiterService implements QuidaxRequestBudget {
             ),
         );
 
-        await this.setCooldown(bucket, {
-            consecutiveThrottleCount: 0,
-            cooldownUntil: Date.now() + retryAfterSeconds * 1000,
-        }, retryAfterSeconds);
-
-        this.logger.warn(
-            `[QUIDAX LIMITER] Blocking ${bucket} requests for ${retryAfterSeconds}s after shared budget exhaustion`
+        await this.setCooldown(
+            bucket,
+            {
+                consecutiveThrottleCount: 0,
+                cooldownUntil: Date.now() + retryAfterSeconds * 1000,
+            },
+            retryAfterSeconds,
         );
 
-        throw this.buildRateLimitError(retryAfterSeconds, "shared budget exhausted");
+        this.logger.warn(
+            `[QUIDAX LIMITER] Blocking ${bucket} requests for ${retryAfterSeconds}s after shared budget exhaustion`,
+        );
+
+        throw this.buildRateLimitError(
+            retryAfterSeconds,
+            "shared budget exhausted",
+        );
     }
 
     async noteThrottle(bucket: QuidaxRequestBudgetBucket): Promise<void> {
         const now = Date.now();
-        const existingCooldown = await this.redisCacheService.get<QuidaxCooldownState>(this.getCooldownKey(bucket));
+        const existingCooldown =
+            await this.redisCacheService.get<QuidaxCooldownState>(
+                this.getCooldownKey(bucket),
+            );
         const nextCount = (existingCooldown?.consecutiveThrottleCount ?? 0) + 1;
         const computedCooldownSeconds = Math.min(
             BASE_COOLDOWN_SECONDS * 2 ** Math.max(0, nextCount - 1),
             MAX_COOLDOWN_SECONDS,
         );
         const existingRemainingSeconds = existingCooldown?.cooldownUntil
-            ? Math.max(0, Math.ceil((existingCooldown.cooldownUntil - now) / 1000))
+            ? Math.max(
+                  0,
+                  Math.ceil((existingCooldown.cooldownUntil - now) / 1000),
+              )
             : 0;
-        const cooldownSeconds = Math.max(computedCooldownSeconds, existingRemainingSeconds);
+        const cooldownSeconds = Math.max(
+            computedCooldownSeconds,
+            existingRemainingSeconds,
+        );
 
-        await this.setCooldown(bucket, {
-            consecutiveThrottleCount: nextCount,
-            cooldownUntil: now + cooldownSeconds * 1000,
-        }, cooldownSeconds);
+        await this.setCooldown(
+            bucket,
+            {
+                consecutiveThrottleCount: nextCount,
+                cooldownUntil: now + cooldownSeconds * 1000,
+            },
+            cooldownSeconds,
+        );
 
         this.logger.warn(
-            `[QUIDAX LIMITER] Applied ${cooldownSeconds}s cooldown for ${bucket} after throttle/block event #${nextCount}`
+            `[QUIDAX LIMITER] Applied ${cooldownSeconds}s cooldown for ${bucket} after throttle/block event #${nextCount}`,
         );
     }
 
-    private getBucketConfig(bucket: QuidaxRequestBudgetBucket): { limit: number; windowSeconds: number } {
+    private getBucketConfig(bucket: QuidaxRequestBudgetBucket): {
+        limit: number;
+        windowSeconds: number;
+    } {
         if (bucket === "wallet-address") {
             return {
                 limit: WALLET_ADDRESS_BUCKET_LIMIT,
@@ -99,14 +129,21 @@ export class QuidaxGlobalLimiterService implements QuidaxRequestBudget {
         };
     }
 
-    private async getActiveCooldown(bucket: QuidaxRequestBudgetBucket): Promise<{ retryAfterSeconds: number } | null> {
-        const cooldown = await this.redisCacheService.get<QuidaxCooldownState>(this.getCooldownKey(bucket));
+    private async getActiveCooldown(
+        bucket: QuidaxRequestBudgetBucket,
+    ): Promise<{ retryAfterSeconds: number } | null> {
+        const cooldown = await this.redisCacheService.get<QuidaxCooldownState>(
+            this.getCooldownKey(bucket),
+        );
 
         if (!cooldown?.cooldownUntil) {
             return null;
         }
 
-        const retryAfterSeconds = Math.max(0, Math.ceil((cooldown.cooldownUntil - Date.now()) / 1000));
+        const retryAfterSeconds = Math.max(
+            0,
+            Math.ceil((cooldown.cooldownUntil - Date.now()) / 1000),
+        );
 
         if (retryAfterSeconds <= 0) {
             return null;
@@ -131,7 +168,10 @@ export class QuidaxGlobalLimiterService implements QuidaxRequestBudget {
         return `quidax:cooldown:${bucket}`;
     }
 
-    private buildRateLimitError(retryAfterSeconds: number, reason: string): QuidaxTooManyRequestError {
+    private buildRateLimitError(
+        retryAfterSeconds: number,
+        reason: string,
+    ): QuidaxTooManyRequestError {
         return new QuidaxTooManyRequestError(
             `Quidax requests are temporarily throttled (${reason}). Retry in ${retryAfterSeconds} seconds.`,
         );

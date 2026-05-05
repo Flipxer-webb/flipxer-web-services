@@ -1,34 +1,40 @@
 import { DocumentType } from "@prisma/client";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
 
 jest.mock("@/modules/api/auth/services", () => ({
-    AuthService: class AuthService {},
+    AuthService: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/auth/services/tier-verification.service", () => ({
-    TierVerificationService: class TierVerificationService {},
+    TierVerificationService: jest.fn(),
+    __esModule: true,
+}));
+
+jest.mock("@/modules/api/auth/services/individual-kyc-stage.service", () => ({
+    IndividualKycStageService: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/auth/guard", () => ({
-    AuthGuard: class AuthGuard {},
-    CountryBlockGuard: class CountryBlockGuard {},
-    EnabledAccountGuard: class EnabledAccountGuard {},
-    SocketAuthGuard: class SocketAuthGuard {},
+    AuthGuard: jest.fn(),
+    CountryBlockGuard: jest.fn(),
+    EnabledAccountGuard: jest.fn(),
+    SocketAuthGuard: jest.fn(),
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/user", () => ({
     User: () => () => undefined,
     ClientData: () => () => undefined,
-    UserModule: class UserModule {},
+    UserModule: jest.fn(),
     AccountDeletedException: class AccountDeletedException extends Error {},
     UserNotFoundException: class UserNotFoundException extends Error {},
     __esModule: true,
 }));
 
 jest.mock("@/modules/api/authorize/guards/role.guard", () => ({
-    RoleGuard: class RoleGuard {},
+    RoleGuard: jest.fn(),
     __esModule: true,
 }));
 
@@ -39,13 +45,15 @@ jest.mock("@/modules/api/authorize/decorator", () => ({
 }));
 
 jest.mock("@/modules/core/rate-limit/guards/rate-limiter.guard", () => ({
-    RateLimiterGuard: class RateLimiterGuard {},
+    RateLimiterGuard: jest.fn(),
     StrictRateLimit: () => () => undefined,
     RateLimit: () => () => undefined,
     __esModule: true,
 }));
 
 import { RequiredFilesMissing } from "../../../errors";
+import { AuthGuard } from "@/modules/api/auth/guard";
+import { RateLimiterGuard } from "@/modules/core/rate-limit/guards/rate-limiter.guard";
 import { AuthController } from "../index";
 
 describe("AuthController", () => {
@@ -53,6 +61,7 @@ describe("AuthController", () => {
 
     let authService: Record<string, jest.Mock>;
     let tierVerificationService: Record<string, jest.Mock>;
+    let individualKycStageService: Record<string, jest.Mock>;
 
     const user = { id: 77 } as any;
 
@@ -90,9 +99,28 @@ describe("AuthController", () => {
             getVerificationStatus: jest.fn(),
         };
 
-        controller = new AuthController(authService as never, tierVerificationService as never);
-        jest.spyOn((controller as any).logger, "debug").mockImplementation(() => undefined);
-        jest.spyOn((controller as any).logger, "log").mockImplementation(() => undefined);
+        individualKycStageService = {
+            submitGovernmentIdBvn: jest.fn(),
+            submitGovernmentIdNin: jest.fn(),
+            previewIdentityDocument: jest.fn(),
+            submitIdentityDocument: jest.fn(),
+            previewAddressDocument: jest.fn(),
+            submitAddressDocument: jest.fn(),
+            previewIncomeDocument: jest.fn(),
+            submitIncomeDocument: jest.fn(),
+        };
+
+        controller = new AuthController(
+            authService as never,
+            tierVerificationService as never,
+            individualKycStageService as never,
+        );
+        jest.spyOn((controller as any).logger, "debug").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((controller as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -102,7 +130,9 @@ describe("AuthController", () => {
     it("masks sensitive ids", () => {
         expect((controller as any).maskSensitiveId(undefined)).toBe("N/A");
         expect((controller as any).maskSensitiveId("1234")).toBe("1234");
-        expect((controller as any).maskSensitiveId("1234567890")).toBe("******7890");
+        expect((controller as any).maskSensitiveId("1234567890")).toBe(
+            "******7890",
+        );
     });
 
     it("delegates auth onboarding and OTP flows", async () => {
@@ -118,28 +148,58 @@ describe("AuthController", () => {
         authService.sendPhoneVerificationOtp.mockResolvedValue({ ok: 10 });
         authService.verifyPhoneOtp.mockResolvedValue({ ok: 11 });
 
-        await expect(controller.signUp({} as never, { ip: "1.2.3.4" } as never)).resolves.toEqual({ ok: 1 });
-        await expect(controller.signIn({} as never, { ip: "4.3.2.1" } as never)).resolves.toEqual({ ok: 2 });
-        await expect(controller.verify2FALogin({} as never, { ip: "5.6.7.8" } as never)).resolves.toEqual({ ok: 3 });
-        await expect(controller.sendAccountVerificationEmail({} as never)).resolves.toEqual({ ok: 4 });
-        await expect(controller.verifyEmailOtp({} as never)).resolves.toEqual({ ok: 5 });
-        await expect(controller.createPassword(user, {} as never)).resolves.toEqual({ ok: 6 });
-        await expect(controller.onboardIndividual(user, {} as never)).resolves.toEqual({ ok: 7 });
-        await expect(controller.bvnVerification(user, { bvn: "12345678901" } as never)).resolves.toEqual({ ok: 8 });
-        await expect(controller.ninVerification(user, { nin: "12345678901" } as never)).resolves.toEqual({ ok: 9 });
-        await expect(controller.sendPhoneVerificationOtp(user, {} as never)).resolves.toEqual({ ok: 10 });
-        await expect(controller.verifyPhoneOtp(user, {} as never)).resolves.toEqual({ ok: 11 });
+        await expect(
+            controller.signUp({} as never, { ip: "1.2.3.4" } as never),
+        ).resolves.toEqual({ ok: 1 });
+        await expect(
+            controller.signIn({} as never, { ip: "4.3.2.1" } as never),
+        ).resolves.toEqual({ ok: 2 });
+        await expect(
+            controller.verify2FALogin({} as never, { ip: "5.6.7.8" } as never),
+        ).resolves.toEqual({ ok: 3 });
+        await expect(
+            controller.sendAccountVerificationEmail({} as never),
+        ).resolves.toEqual({ ok: 4 });
+        await expect(controller.verifyEmailOtp({} as never)).resolves.toEqual({
+            ok: 5,
+        });
+        await expect(
+            controller.createPassword(user, {} as never),
+        ).resolves.toEqual({ ok: 6 });
+        await expect(
+            controller.onboardIndividual(user, {} as never),
+        ).resolves.toEqual({ ok: 7 });
+        await expect(
+            controller.bvnVerification(user, { bvn: "12345678901" } as never),
+        ).resolves.toEqual({ ok: 8 });
+        await expect(
+            controller.ninVerification(user, { nin: "12345678901" } as never),
+        ).resolves.toEqual({ ok: 9 });
+        await expect(
+            controller.sendPhoneVerificationOtp(user, {} as never),
+        ).resolves.toEqual({ ok: 10 });
+        await expect(
+            controller.verifyPhoneOtp(user, {} as never),
+        ).resolves.toEqual({ ok: 11 });
 
         expect(authService.signUp).toHaveBeenCalledWith({}, "1.2.3.4");
         expect(authService.userSignIn).toHaveBeenCalledWith({}, "4.3.2.1");
         expect(authService.verify2FALogin).toHaveBeenCalledWith({}, "5.6.7.8");
-        expect(authService.bvnVerification).toHaveBeenCalledWith(user, { bvn: "12345678901" });
-        expect(authService.ninVerification).toHaveBeenCalledWith(user, { nin: "12345678901" });
+        expect(authService.bvnVerification).toHaveBeenCalledWith(user, {
+            bvn: "12345678901",
+        });
+        expect(authService.ninVerification).toHaveBeenCalledWith(user, {
+            nin: "12345678901",
+        });
     });
 
     it("enforces required files for document verification and delegates success", async () => {
         await expect(
-            controller.documentVerification(user, {} as never, { documentType: DocumentType.DRIVER_LICENSE } as never),
+            controller.documentVerification(
+                user,
+                {} as never,
+                { documentType: DocumentType.DRIVER_LICENSE } as never,
+            ),
         ).rejects.toBeInstanceOf(RequiredFilesMissing);
 
         await expect(
@@ -172,57 +232,254 @@ describe("AuthController", () => {
     });
 
     it("validates base64 and preview document routes", async () => {
-        await expect(controller.documentVerificationBase64(user, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
-        await expect(controller.previewDocument(user, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.documentVerificationBase64(user, {} as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.previewDocument(user, {} as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
 
         authService.documentVerificationBase64.mockResolvedValue({ ok: true });
-        authService.previewDocument.mockResolvedValue({ data: { name: "John" } });
+        authService.previewDocument.mockResolvedValue({
+            data: { name: "John" },
+        });
 
         await expect(
-            controller.documentVerificationBase64(user, { imageFrontBase64: "abc" } as never),
+            controller.documentVerificationBase64(user, {
+                imageFrontBase64: "abc",
+            } as never),
         ).resolves.toEqual({ ok: true });
         await expect(
-            controller.previewDocument(user, { imageFrontBase64: "abc" } as never),
+            controller.previewDocument(user, {
+                imageFrontBase64: "abc",
+            } as never),
         ).resolves.toEqual({ data: { name: "John" } });
+    });
+
+    it("delegates staged preview and submit routes", async () => {
+        individualKycStageService.submitGovernmentIdBvn.mockResolvedValue({
+            ok: "government-bvn-submit",
+        });
+        individualKycStageService.submitGovernmentIdNin.mockResolvedValue({
+            ok: "government-nin-submit",
+        });
+        individualKycStageService.previewIdentityDocument.mockResolvedValue({
+            ok: "identity-preview",
+        });
+        individualKycStageService.submitIdentityDocument.mockResolvedValue({
+            ok: "identity-submit",
+        });
+        individualKycStageService.previewAddressDocument.mockResolvedValue({
+            ok: "address-preview",
+        });
+        individualKycStageService.submitAddressDocument.mockResolvedValue({
+            ok: "address-submit",
+        });
+        individualKycStageService.previewIncomeDocument.mockResolvedValue({
+            ok: "income-preview",
+        });
+        individualKycStageService.submitIncomeDocument.mockResolvedValue({
+            ok: "income-submit",
+        });
+
+        await expect(
+            controller.previewIdentityDocumentStage(user, {} as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.submitIdentityDocumentStage(user, {} as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.previewAddressStage(
+                user,
+                {} as never,
+                undefined as never,
+            ),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.submitAddressStage(
+                user,
+                {} as never,
+                undefined as never,
+            ),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.previewIncomeStage(
+                user,
+                {} as never,
+                undefined as never,
+            ),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.submitIncomeStage(user, {} as never, undefined as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+
+        await expect(
+            controller.submitGovernmentIdBvnStage(user, {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                dateOfBirth: "1815-12-10",
+                bvn: "12345678901",
+            } as never),
+        ).resolves.toEqual({ ok: "government-bvn-submit" });
+        await expect(
+            controller.submitGovernmentIdNinStage(user, {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                dateOfBirth: "1815-12-10",
+                nin: "12345678901",
+            } as never),
+        ).resolves.toEqual({ ok: "government-nin-submit" });
+        await expect(
+            controller.previewIdentityDocumentStage(user, {
+                imageFrontBase64: "abc",
+            } as never),
+        ).resolves.toEqual({ ok: "identity-preview" });
+        await expect(
+            controller.submitIdentityDocumentStage(user, {
+                imageFrontBase64: "abc",
+            } as never),
+        ).resolves.toEqual({ ok: "identity-submit" });
+        await expect(
+            controller.previewAddressStage(
+                user,
+                { method: "UTILITY_BILL" } as never,
+                { originalname: "address.pdf" } as never,
+            ),
+        ).resolves.toEqual({ ok: "address-preview" });
+        await expect(
+            controller.submitAddressStage(
+                user,
+                { method: "UTILITY_BILL" } as never,
+                { originalname: "address.pdf" } as never,
+            ),
+        ).resolves.toEqual({ ok: "address-submit" });
+        await expect(
+            controller.previewIncomeStage(
+                user,
+                { method: "PAYSLIP" } as never,
+                { originalname: "income.pdf" } as never,
+            ),
+        ).resolves.toEqual({ ok: "income-preview" });
+        await expect(
+            controller.submitIncomeStage(
+                user,
+                { method: "PAYSLIP" } as never,
+                { originalname: "income.pdf" } as never,
+            ),
+        ).resolves.toEqual({ ok: "income-submit" });
+
+        expect(
+            individualKycStageService.submitGovernmentIdBvn,
+        ).toHaveBeenCalledWith(user, {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            dateOfBirth: "1815-12-10",
+            bvn: "12345678901",
+        });
+        expect(
+            individualKycStageService.submitGovernmentIdNin,
+        ).toHaveBeenCalledWith(user, {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            dateOfBirth: "1815-12-10",
+            nin: "12345678901",
+        });
+    });
+
+    it("authenticates staged address and income file uploads before rate limiting", () => {
+        const guardedMethods = [
+            "previewAddressStage",
+            "submitAddressStage",
+            "previewIncomeStage",
+            "submitIncomeStage",
+        ] as const;
+
+        for (const methodName of guardedMethods) {
+            expect(
+                Reflect.getMetadata(
+                    GUARDS_METADATA,
+                    AuthController.prototype[methodName],
+                ),
+            ).toEqual([AuthGuard, RateLimiterGuard]);
+        }
     });
 
     it("returns retired response for Dojah widget route and still delegates business routes", async () => {
         authService.submitDojahWidgetVerification.mockRejectedValue(
-            new Error("Dojah widget verification has been retired. Use the document upload flow instead."),
+            new Error(
+                "Dojah widget verification has been retired. Use the document upload flow instead.",
+            ),
         );
         authService.submitBusinessRecord.mockResolvedValue({ ok: "record" });
-        authService.submitBusinessDocumentsFromUrls.mockResolvedValue({ ok: "urls" });
+        authService.submitBusinessDocumentsFromUrls.mockResolvedValue({
+            ok: "urls",
+        });
 
         await expect(
-            controller.submitDojahVerification(
-                user,
-                { verificationId: "v1", referenceId: "r1", idData: { firstName: "A" } } as never,
-            ),
+            (controller as any).submitDojahVerification(user, {
+                verificationId: "v1",
+                referenceId: "r1",
+                idData: { firstName: "A" },
+            } as never),
         ).rejects.toThrow("Dojah widget verification has been retired");
 
-        await expect(controller.submitBusinessRecord(user, {} as never)).resolves.toEqual({ ok: "record" });
-        await expect(controller.submitBusinessDocuments(user, {} as never)).resolves.toEqual({ ok: "urls" });
+        await expect(
+            controller.submitBusinessRecord(user, {} as never),
+        ).resolves.toEqual({ ok: "record" });
+        await expect(
+            controller.submitBusinessDocuments(user, {} as never),
+        ).resolves.toEqual({ ok: "urls" });
 
         expect(authService.submitDojahWidgetVerification).toHaveBeenCalled();
         expect(authService.submitBusinessRecord).toHaveBeenCalledWith(user, {});
-        expect(authService.submitBusinessDocumentsFromUrls).toHaveBeenCalledWith(user, {});
+        expect(
+            authService.submitBusinessDocumentsFromUrls,
+        ).toHaveBeenCalledWith(user, {});
     });
 
     it("enforces required files for business upload endpoints and delegates success", async () => {
-        await expect(controller.updloadBusinessDocuments(user, {} as never, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
-        await expect(controller.uploadBusinessDocumentFile(user, undefined as never, {} as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.updloadBusinessDocuments(user, {} as never, {} as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.uploadBusinessDocumentFile(
+                user,
+                undefined as never,
+                {} as never,
+            ),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
 
         authService.updloadBusinessDocuments.mockResolvedValue({ ok: "multi" });
-        authService.uploadSingleBusinessDocumentFile.mockResolvedValue({ ok: "single" });
+        authService.uploadSingleBusinessDocumentFile.mockResolvedValue({
+            ok: "single",
+        });
 
         const docs = { cacImage: [{ originalname: "cac.pdf" }] };
         const file = { originalname: "single.pdf" };
 
-        await expect(controller.updloadBusinessDocuments(user, docs as never, { size: "small" } as never)).resolves.toEqual({ ok: "multi" });
-        await expect(controller.uploadBusinessDocumentFile(user, file as never, { fileType: "cac" } as never)).resolves.toEqual({ ok: "single" });
+        await expect(
+            controller.updloadBusinessDocuments(
+                user,
+                docs as never,
+                { size: "small" } as never,
+            ),
+        ).resolves.toEqual({ ok: "multi" });
+        await expect(
+            controller.uploadBusinessDocumentFile(
+                user,
+                file as never,
+                { fileType: "cac" } as never,
+            ),
+        ).resolves.toEqual({ ok: "single" });
 
-        expect(authService.updloadBusinessDocuments).toHaveBeenCalledWith(user, docs, { size: "small" });
-        expect(authService.uploadSingleBusinessDocumentFile).toHaveBeenCalledWith(user, file, { fileType: "cac" });
+        expect(authService.updloadBusinessDocuments).toHaveBeenCalledWith(
+            user,
+            docs,
+            { size: "small" },
+        );
+        expect(
+            authService.uploadSingleBusinessDocumentFile,
+        ).toHaveBeenCalledWith(user, file, { fileType: "cac" });
     });
 
     it("delegates reset, refresh, and tier verification routes", async () => {
@@ -230,23 +487,59 @@ describe("AuthController", () => {
         authService.resetPassword.mockResolvedValue({ ok: "reset" });
         authService.refreshToken.mockResolvedValue({ ok: "refresh" });
 
-        tierVerificationService.verifyAddress.mockResolvedValue({ ok: "address" });
-        tierVerificationService.verifyIncome.mockResolvedValue({ ok: "income" });
-        tierVerificationService.createTradingPassword.mockResolvedValue({ ok: "trading" });
-        tierVerificationService.hasTradingPassword.mockResolvedValue({ hasPassword: true });
-        tierVerificationService.getVerificationStatus.mockResolvedValue({ tier: 2 });
+        tierVerificationService.verifyAddress.mockResolvedValue({
+            ok: "address",
+        });
+        tierVerificationService.verifyIncome.mockResolvedValue({
+            ok: "income",
+        });
+        tierVerificationService.createTradingPassword.mockResolvedValue({
+            ok: "trading",
+        });
+        tierVerificationService.hasTradingPassword.mockResolvedValue({
+            hasPassword: true,
+        });
+        tierVerificationService.getVerificationStatus.mockResolvedValue({
+            tier: 2,
+        });
 
-        await expect(controller.forgotPassword({ email: "a@b.com" } as never)).resolves.toEqual({ ok: "forgot" });
-        await expect(controller.resetPassword({ token: "t" } as never)).resolves.toEqual({ ok: "reset" });
-        await expect(controller.refreshToken({ refreshToken: "r" } as never)).resolves.toEqual({ ok: "refresh" });
+        await expect(
+            controller.forgotPassword({ email: "a@b.com" } as never),
+        ).resolves.toEqual({ ok: "forgot" });
+        await expect(
+            controller.resetPassword({ token: "t" } as never),
+        ).resolves.toEqual({ ok: "reset" });
+        await expect(
+            controller.refreshToken({ refreshToken: "r" } as never),
+        ).resolves.toEqual({ ok: "refresh" });
 
-        await expect(controller.verifyAddress(user, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
-        await expect(controller.verifyIncome(user, undefined as never)).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.verifyAddress(user, undefined as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
+        await expect(
+            controller.verifyIncome(user, undefined as never),
+        ).rejects.toBeInstanceOf(RequiredFilesMissing);
 
-        await expect(controller.verifyAddress(user, { originalname: "address.pdf" } as never)).resolves.toEqual({ ok: "address" });
-        await expect(controller.verifyIncome(user, { originalname: "income.pdf" } as never)).resolves.toEqual({ ok: "income" });
-        await expect(controller.createTradingPassword(user, { password: "abc" } as never)).resolves.toEqual({ ok: "trading" });
-        await expect(controller.hasTradingPassword(user)).resolves.toEqual({ hasPassword: true });
-        await expect(controller.getVerificationStatus(user)).resolves.toEqual({ tier: 2 });
+        await expect(
+            controller.verifyAddress(user, {
+                originalname: "address.pdf",
+            } as never),
+        ).resolves.toEqual({ ok: "address" });
+        await expect(
+            controller.verifyIncome(user, {
+                originalname: "income.pdf",
+            } as never),
+        ).resolves.toEqual({ ok: "income" });
+        await expect(
+            controller.createTradingPassword(user, {
+                password: "abc",
+            } as never),
+        ).resolves.toEqual({ ok: "trading" });
+        await expect(controller.hasTradingPassword(user)).resolves.toEqual({
+            hasPassword: true,
+        });
+        await expect(controller.getVerificationStatus(user)).resolves.toEqual({
+            tier: 2,
+        });
     });
 });

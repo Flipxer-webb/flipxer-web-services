@@ -1,10 +1,10 @@
 /**
  * ITradingProvider - Abstract interface for crypto trading providers
- * 
+ *
  * This interface defines the contract that any trading provider (Quidax, Binance, etc.)
  * must implement. This allows the application to be provider-agnostic and easily
  * switch between different trading platforms.
- * 
+ *
  * Benefits:
  * - Loose coupling: Services depend on interface, not concrete implementations
  * - Testability: Easy to create mock providers for unit testing
@@ -15,7 +15,7 @@
 // ============ Common Types ============
 
 export interface ProviderResponse<T> {
-    status: 'success' | 'error';
+    status: "success" | "error";
     message?: string;
     data: T;
 }
@@ -91,8 +91,8 @@ export interface AddressVerificationResult {
 
 // ============ Order Types ============
 
-export type OrderSide = 'buy' | 'sell';
-export type OrderType = 'market' | 'limit' | 'instant';
+export type OrderSide = "buy" | "sell";
+export type OrderType = "market" | "limit" | "instant";
 
 export interface PlaceOrderOptions {
     userId: string;
@@ -134,7 +134,10 @@ export interface CreateSwapQuoteOptions {
     toAmount?: string;
 }
 
-export type WithdrawalFeeValue = string | number | Array<{ min: number; max: number; type: string; value: number }>;
+export type WithdrawalFeeValue =
+    | string
+    | number
+    | Array<{ min: number; max: number; type: string; value: number }>;
 
 export interface SwapQuote {
     id: string;
@@ -273,187 +276,261 @@ export interface ITradingProvider {
     readonly providerName: string;
 
     // ============ Account Operations ============
-    
+
     /**
      * Create a sub-account for a user on the trading platform
      */
-    createSubAccount(options: CreateSubAccountOptions): Promise<ProviderResponse<SubAccount>>;
-    
+    createSubAccount(
+        options: CreateSubAccountOptions,
+    ): Promise<ProviderResponse<SubAccount>>;
+
     /**
      * Find a sub-account by email
      */
     findSubAccountByEmail(email: string): Promise<SubAccount | null>;
-    
+
     /**
      * Get account details by user ID
      */
     getAccountDetail(userId: string): Promise<ProviderResponse<AccountDetail>>;
 
     // ============ Wallet Operations ============
-    
+
     /**
      * Get all wallet balances for a user
      */
-    getUserWalletList(userId: string): Promise<ProviderResponse<WalletBalance[]>>;
-    
+    getUserWalletList(
+        userId: string,
+    ): Promise<ProviderResponse<WalletBalance[]>>;
+
     /**
      * Get specific wallet balance for a user
      */
-    getUserWallet(userId: string, currency: string): Promise<ProviderResponse<WalletBalance>>;
-    
+    getUserWallet(
+        userId: string,
+        currency: string,
+    ): Promise<ProviderResponse<WalletBalance>>;
+
     /**
      * Create a new payment/deposit address
      */
-    createPaymentAddress(options: CreatePaymentAddressOptions): Promise<ProviderResponse<PaymentAddress>>;
-    
+    createPaymentAddress(
+        options: CreatePaymentAddressOptions,
+    ): Promise<ProviderResponse<PaymentAddress>>;
+
     /**
      * Get payment address by ID
      */
-    getPaymentAddressById(userId: string, addressId: string): Promise<ProviderResponse<PaymentAddress>>;
-    
+    getPaymentAddressById(
+        userId: string,
+        addressId: string,
+    ): Promise<ProviderResponse<PaymentAddress>>;
+
     /**
      * Get all payment addresses for a user's currency
      */
-    getPaymentAddressList(userId: string, currency: string): Promise<ProviderResponse<PaymentAddress[]>>;
-    
+    getPaymentAddressList(
+        userId: string,
+        currency: string,
+    ): Promise<ProviderResponse<PaymentAddress[]>>;
+
     /**
      * Verify if an external address is valid
      */
-    verifyAddress(options: VerifyAddressOptions): Promise<ProviderResponse<AddressVerificationResult>>;
+    verifyAddress(
+        options: VerifyAddressOptions,
+    ): Promise<ProviderResponse<AddressVerificationResult>>;
 
     // ============ Order Operations ============
-    
+
     /**
      * Place a buy or sell order
      */
-    placeOrder(options: PlaceOrderOptions): Promise<ProviderResponse<OrderResult>>;
-    
+    placeOrder(
+        options: PlaceOrderOptions,
+    ): Promise<ProviderResponse<OrderResult>>;
+
     /**
      * Cancel an existing order
      */
-    cancelOrder(options: CancelOrderOptions): Promise<ProviderResponse<OrderResult>>;
-    
+    cancelOrder(
+        options: CancelOrderOptions,
+    ): Promise<ProviderResponse<OrderResult>>;
+
     /**
      * Get order details by ID
      */
-    getOrderById(userId: string, orderId: string): Promise<ProviderResponse<OrderResult>>;
-    
+    getOrderById(
+        userId: string,
+        orderId: string,
+    ): Promise<ProviderResponse<OrderResult>>;
+
     /**
      * Get all orders for a user
      */
-    getOrderList(userId: string, options?: PaginationOptions): Promise<ProviderResponse<OrderResult[]>>;
+    getOrderList(
+        userId: string,
+        options?: PaginationOptions,
+    ): Promise<ProviderResponse<OrderResult[]>>;
 
     // ============ Swap Operations ============
-    
+
     /**
      * Create a swap quote (not yet executed)
      */
-    createSwapQuote(options: CreateSwapQuoteOptions): Promise<ProviderResponse<SwapQuote>>;
-    
+    createSwapQuote(
+        options: CreateSwapQuoteOptions,
+    ): Promise<ProviderResponse<SwapQuote>>;
+
     /**
      * Confirm and execute a swap quote
      */
-    confirmSwap(options: ConfirmSwapOptions): Promise<ProviderResponse<SwapTransaction>>;
-    
+    confirmSwap(
+        options: ConfirmSwapOptions,
+    ): Promise<ProviderResponse<SwapTransaction>>;
+
     /**
      * Get swap transaction details
      */
-    getSwapTransaction(userId: string, transactionId: string): Promise<ProviderResponse<SwapTransaction>>;
-    
+    getSwapTransaction(
+        userId: string,
+        transactionId: string,
+    ): Promise<ProviderResponse<SwapTransaction>>;
+
     /**
      * Get all swap transactions for a user
      */
-    getSwapTransactionList(userId: string): Promise<ProviderResponse<SwapTransaction[]>>;
+    getSwapTransactionList(
+        userId: string,
+    ): Promise<ProviderResponse<SwapTransaction[]>>;
 
     // ============ Withdrawal Operations ============
-    
+
     /**
      * Create a withdrawal request
      */
-    createWithdrawal(options: CreateWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>>;
-    
+    createWithdrawal(
+        options: CreateWithdrawalOptions,
+    ): Promise<ProviderResponse<WithdrawalResult>>;
+
     /**
      * Cancel a pending withdrawal
      */
-    cancelWithdrawal(options: CancelWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>>;
-    
+    cancelWithdrawal(
+        options: CancelWithdrawalOptions,
+    ): Promise<ProviderResponse<WithdrawalResult>>;
+
     /**
      * Get withdrawal details by ID
      */
-    getWithdrawalById(userId: string, withdrawalId: string): Promise<ProviderResponse<WithdrawalResult>>;
-    
+    getWithdrawalById(
+        userId: string,
+        withdrawalId: string,
+    ): Promise<ProviderResponse<WithdrawalResult>>;
+
     /**
      * Get withdrawal by reference
      */
-    getWithdrawalByReference(userId: string, reference: string): Promise<ProviderResponse<WithdrawalResult>>;
-    
+    getWithdrawalByReference(
+        userId: string,
+        reference: string,
+    ): Promise<ProviderResponse<WithdrawalResult>>;
+
     /**
      * Get all withdrawals for a user
      */
-    getWithdrawalList(userId: string, options?: PaginationOptions): Promise<ProviderResponse<WithdrawalResult[]>>;
-    
+    getWithdrawalList(
+        userId: string,
+        options?: PaginationOptions,
+    ): Promise<ProviderResponse<WithdrawalResult[]>>;
+
     /**
      * Get withdrawal fees for a currency
      */
-    getWithdrawalFees(userId: string, currency: string, network?: string): Promise<ProviderResponse<WithdrawalFee>>;
+    getWithdrawalFees(
+        userId: string,
+        currency: string,
+        network?: string,
+    ): Promise<ProviderResponse<WithdrawalFee>>;
 
     // ============ Deposit Operations ============
-    
+
     /**
      * Get deposit history for a user
      */
-    fetchDeposits(options: FetchDepositsOptions): Promise<ProviderResponse<DepositRecord[]>>;
-    
+    fetchDeposits(
+        options: FetchDepositsOptions,
+    ): Promise<ProviderResponse<DepositRecord[]>>;
+
     /**
      * Get specific deposit by ID
      */
-    fetchDeposit(userId: string, depositId: string): Promise<ProviderResponse<DepositRecord>>;
+    fetchDeposit(
+        userId: string,
+        depositId: string,
+    ): Promise<ProviderResponse<DepositRecord>>;
 
     // ============ Market Data Operations ============
-    
+
     /**
      * Get all market tickers
      */
     getMarketTickers(): Promise<ProviderResponse<MarketTicker[]>>;
-    
+
     /**
      * Get ticker for a specific market
      */
-    getSingleMarketTicker(pair: string): Promise<ProviderResponse<MarketTicker>>;
-    
+    getSingleMarketTicker(
+        pair: string,
+    ): Promise<ProviderResponse<MarketTicker>>;
+
     /**
      * Get list of available markets/pairs
      */
     getMarketList(): Promise<ProviderResponse<string[]>>;
 
     // ============ Purchase Operations ============
-    
+
     /**
      * Get purchase limits for buying crypto
      */
-    getPurchaseLimitForBuy(userId: string, currency: string): Promise<ProviderResponse<PurchaseLimit>>;
-    
+    getPurchaseLimitForBuy(
+        userId: string,
+        currency: string,
+    ): Promise<ProviderResponse<PurchaseLimit>>;
+
     /**
      * Get purchase limits for selling crypto
      */
-    getPurchaseLimitForSell(userId: string, currency: string): Promise<ProviderResponse<PurchaseLimit>>;
-    
+    getPurchaseLimitForSell(
+        userId: string,
+        currency: string,
+    ): Promise<ProviderResponse<PurchaseLimit>>;
+
     /**
      * Get quote for buying crypto with fiat
      */
-    getPurchaseQuoteForBuy(userId: string, currency: string, amount: string): Promise<ProviderResponse<PurchaseQuote>>;
-    
+    getPurchaseQuoteForBuy(
+        userId: string,
+        currency: string,
+        amount: string,
+    ): Promise<ProviderResponse<PurchaseQuote>>;
+
     /**
      * Get quote for selling crypto for fiat
      */
-    getPurchaseQuoteForSell(userId: string, currency: string, amount: string): Promise<ProviderResponse<PurchaseQuote>>;
+    getPurchaseQuoteForSell(
+        userId: string,
+        currency: string,
+        amount: string,
+    ): Promise<ProviderResponse<PurchaseQuote>>;
 }
 
 // ============ Mock Provider for Testing ============
 
 /**
  * MockTradingProvider - Use for unit testing
- * 
+ *
  * Example usage:
  * ```typescript
  * const mockProvider = new MockTradingProvider();
@@ -464,12 +541,18 @@ export interface ITradingProvider {
  * ```
  */
 export class MockTradingProvider implements ITradingProvider {
-    readonly providerName = 'mock';
+    readonly providerName = "mock";
     private readonly responses: Map<string, any> = new Map();
 
     setResponse<K extends keyof ITradingProvider>(
         method: K,
-        response: Awaited<ReturnType<ITradingProvider[K] extends (...args: any[]) => any ? ITradingProvider[K] : never>>
+        response: Awaited<
+            ReturnType<
+                ITradingProvider[K] extends (...args: any[]) => any
+                    ? ITradingProvider[K]
+                    : never
+            >
+        >,
     ): void {
         this.responses.set(method as string, response);
     }
@@ -477,144 +560,222 @@ export class MockTradingProvider implements ITradingProvider {
     private getResponse<T>(method: string): T {
         const response = this.responses.get(method);
         if (!response) {
-            throw new Error(`MockTradingProvider: No mock response set for method '${method}'`);
+            throw new Error(
+                `MockTradingProvider: No mock response set for method '${method}'`,
+            );
         }
         return response;
     }
 
     // Account
-    async createSubAccount(_options: CreateSubAccountOptions): Promise<ProviderResponse<SubAccount>> {
-        return this.getResponse('createSubAccount');
+    async createSubAccount(
+        _options: CreateSubAccountOptions,
+    ): Promise<ProviderResponse<SubAccount>> {
+        return this.getResponse("createSubAccount");
     }
 
     async findSubAccountByEmail(_email: string): Promise<SubAccount | null> {
-        return this.getResponse('findSubAccountByEmail');
+        return this.getResponse("findSubAccountByEmail");
     }
 
-    async getAccountDetail(_userId: string): Promise<ProviderResponse<AccountDetail>> {
-        return this.getResponse('getAccountDetail');
+    async getAccountDetail(
+        _userId: string,
+    ): Promise<ProviderResponse<AccountDetail>> {
+        return this.getResponse("getAccountDetail");
     }
 
     // Wallet
-    async getUserWalletList(_userId: string): Promise<ProviderResponse<WalletBalance[]>> {
-        return this.getResponse('getUserWalletList');
+    async getUserWalletList(
+        _userId: string,
+    ): Promise<ProviderResponse<WalletBalance[]>> {
+        return this.getResponse("getUserWalletList");
     }
 
-    async getUserWallet(_userId: string, _currency: string): Promise<ProviderResponse<WalletBalance>> {
-        return this.getResponse('getUserWallet');
+    async getUserWallet(
+        _userId: string,
+        _currency: string,
+    ): Promise<ProviderResponse<WalletBalance>> {
+        return this.getResponse("getUserWallet");
     }
 
-    async createPaymentAddress(_options: CreatePaymentAddressOptions): Promise<ProviderResponse<PaymentAddress>> {
-        return this.getResponse('createPaymentAddress');
+    async createPaymentAddress(
+        _options: CreatePaymentAddressOptions,
+    ): Promise<ProviderResponse<PaymentAddress>> {
+        return this.getResponse("createPaymentAddress");
     }
 
-    async getPaymentAddressById(_userId: string, _addressId: string): Promise<ProviderResponse<PaymentAddress>> {
-        return this.getResponse('getPaymentAddressById');
+    async getPaymentAddressById(
+        _userId: string,
+        _addressId: string,
+    ): Promise<ProviderResponse<PaymentAddress>> {
+        return this.getResponse("getPaymentAddressById");
     }
 
-    async getPaymentAddressList(_userId: string, _currency: string): Promise<ProviderResponse<PaymentAddress[]>> {
-        return this.getResponse('getPaymentAddressList');
+    async getPaymentAddressList(
+        _userId: string,
+        _currency: string,
+    ): Promise<ProviderResponse<PaymentAddress[]>> {
+        return this.getResponse("getPaymentAddressList");
     }
 
-    async verifyAddress(_options: VerifyAddressOptions): Promise<ProviderResponse<AddressVerificationResult>> {
-        return this.getResponse('verifyAddress');
+    async verifyAddress(
+        _options: VerifyAddressOptions,
+    ): Promise<ProviderResponse<AddressVerificationResult>> {
+        return this.getResponse("verifyAddress");
     }
 
     // Orders
-    async placeOrder(_options: PlaceOrderOptions): Promise<ProviderResponse<OrderResult>> {
-        return this.getResponse('placeOrder');
+    async placeOrder(
+        _options: PlaceOrderOptions,
+    ): Promise<ProviderResponse<OrderResult>> {
+        return this.getResponse("placeOrder");
     }
 
-    async cancelOrder(_options: CancelOrderOptions): Promise<ProviderResponse<OrderResult>> {
-        return this.getResponse('cancelOrder');
+    async cancelOrder(
+        _options: CancelOrderOptions,
+    ): Promise<ProviderResponse<OrderResult>> {
+        return this.getResponse("cancelOrder");
     }
 
-    async getOrderById(_userId: string, _orderId: string): Promise<ProviderResponse<OrderResult>> {
-        return this.getResponse('getOrderById');
+    async getOrderById(
+        _userId: string,
+        _orderId: string,
+    ): Promise<ProviderResponse<OrderResult>> {
+        return this.getResponse("getOrderById");
     }
 
-    async getOrderList(_userId: string, _options?: PaginationOptions): Promise<ProviderResponse<OrderResult[]>> {
-        return this.getResponse('getOrderList');
+    async getOrderList(
+        _userId: string,
+        _options?: PaginationOptions,
+    ): Promise<ProviderResponse<OrderResult[]>> {
+        return this.getResponse("getOrderList");
     }
 
     // Swap
-    async createSwapQuote(_options: CreateSwapQuoteOptions): Promise<ProviderResponse<SwapQuote>> {
-        return this.getResponse('createSwapQuote');
+    async createSwapQuote(
+        _options: CreateSwapQuoteOptions,
+    ): Promise<ProviderResponse<SwapQuote>> {
+        return this.getResponse("createSwapQuote");
     }
 
-    async confirmSwap(_options: ConfirmSwapOptions): Promise<ProviderResponse<SwapTransaction>> {
-        return this.getResponse('confirmSwap');
+    async confirmSwap(
+        _options: ConfirmSwapOptions,
+    ): Promise<ProviderResponse<SwapTransaction>> {
+        return this.getResponse("confirmSwap");
     }
 
-    async getSwapTransaction(_userId: string, _transactionId: string): Promise<ProviderResponse<SwapTransaction>> {
-        return this.getResponse('getSwapTransaction');
+    async getSwapTransaction(
+        _userId: string,
+        _transactionId: string,
+    ): Promise<ProviderResponse<SwapTransaction>> {
+        return this.getResponse("getSwapTransaction");
     }
 
-    async getSwapTransactionList(_userId: string): Promise<ProviderResponse<SwapTransaction[]>> {
-        return this.getResponse('getSwapTransactionList');
+    async getSwapTransactionList(
+        _userId: string,
+    ): Promise<ProviderResponse<SwapTransaction[]>> {
+        return this.getResponse("getSwapTransactionList");
     }
 
     // Withdrawal
-    async createWithdrawal(_options: CreateWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>> {
-        return this.getResponse('createWithdrawal');
+    async createWithdrawal(
+        _options: CreateWithdrawalOptions,
+    ): Promise<ProviderResponse<WithdrawalResult>> {
+        return this.getResponse("createWithdrawal");
     }
 
-    async cancelWithdrawal(_options: CancelWithdrawalOptions): Promise<ProviderResponse<WithdrawalResult>> {
-        return this.getResponse('cancelWithdrawal');
+    async cancelWithdrawal(
+        _options: CancelWithdrawalOptions,
+    ): Promise<ProviderResponse<WithdrawalResult>> {
+        return this.getResponse("cancelWithdrawal");
     }
 
-    async getWithdrawalById(_userId: string, _withdrawalId: string): Promise<ProviderResponse<WithdrawalResult>> {
-        return this.getResponse('getWithdrawalById');
+    async getWithdrawalById(
+        _userId: string,
+        _withdrawalId: string,
+    ): Promise<ProviderResponse<WithdrawalResult>> {
+        return this.getResponse("getWithdrawalById");
     }
 
-    async getWithdrawalByReference(_userId: string, _reference: string): Promise<ProviderResponse<WithdrawalResult>> {
-        return this.getResponse('getWithdrawalByReference');
+    async getWithdrawalByReference(
+        _userId: string,
+        _reference: string,
+    ): Promise<ProviderResponse<WithdrawalResult>> {
+        return this.getResponse("getWithdrawalByReference");
     }
 
-    async getWithdrawalList(_userId: string, _options?: PaginationOptions): Promise<ProviderResponse<WithdrawalResult[]>> {
-        return this.getResponse('getWithdrawalList');
+    async getWithdrawalList(
+        _userId: string,
+        _options?: PaginationOptions,
+    ): Promise<ProviderResponse<WithdrawalResult[]>> {
+        return this.getResponse("getWithdrawalList");
     }
 
-    async getWithdrawalFees(_userId: string, _currency: string, _network?: string): Promise<ProviderResponse<WithdrawalFee>> {
-        return this.getResponse('getWithdrawalFees');
+    async getWithdrawalFees(
+        _userId: string,
+        _currency: string,
+        _network?: string,
+    ): Promise<ProviderResponse<WithdrawalFee>> {
+        return this.getResponse("getWithdrawalFees");
     }
 
     // Deposits
-    async fetchDeposits(_options: FetchDepositsOptions): Promise<ProviderResponse<DepositRecord[]>> {
-        return this.getResponse('fetchDeposits');
+    async fetchDeposits(
+        _options: FetchDepositsOptions,
+    ): Promise<ProviderResponse<DepositRecord[]>> {
+        return this.getResponse("fetchDeposits");
     }
 
-    async fetchDeposit(_userId: string, _depositId: string): Promise<ProviderResponse<DepositRecord>> {
-        return this.getResponse('fetchDeposit');
+    async fetchDeposit(
+        _userId: string,
+        _depositId: string,
+    ): Promise<ProviderResponse<DepositRecord>> {
+        return this.getResponse("fetchDeposit");
     }
 
     // Market Data
     async getMarketTickers(): Promise<ProviderResponse<MarketTicker[]>> {
-        return this.getResponse('getMarketTickers');
+        return this.getResponse("getMarketTickers");
     }
 
-    async getSingleMarketTicker(_pair: string): Promise<ProviderResponse<MarketTicker>> {
-        return this.getResponse('getSingleMarketTicker');
+    async getSingleMarketTicker(
+        _pair: string,
+    ): Promise<ProviderResponse<MarketTicker>> {
+        return this.getResponse("getSingleMarketTicker");
     }
 
     async getMarketList(): Promise<ProviderResponse<string[]>> {
-        return this.getResponse('getMarketList');
+        return this.getResponse("getMarketList");
     }
 
     // Purchase
-    async getPurchaseLimitForBuy(_userId: string, _currency: string): Promise<ProviderResponse<PurchaseLimit>> {
-        return this.getResponse('getPurchaseLimitForBuy');
+    async getPurchaseLimitForBuy(
+        _userId: string,
+        _currency: string,
+    ): Promise<ProviderResponse<PurchaseLimit>> {
+        return this.getResponse("getPurchaseLimitForBuy");
     }
 
-    async getPurchaseLimitForSell(_userId: string, _currency: string): Promise<ProviderResponse<PurchaseLimit>> {
-        return this.getResponse('getPurchaseLimitForSell');
+    async getPurchaseLimitForSell(
+        _userId: string,
+        _currency: string,
+    ): Promise<ProviderResponse<PurchaseLimit>> {
+        return this.getResponse("getPurchaseLimitForSell");
     }
 
-    async getPurchaseQuoteForBuy(_userId: string, _currency: string, _amount: string): Promise<ProviderResponse<PurchaseQuote>> {
-        return this.getResponse('getPurchaseQuoteForBuy');
+    async getPurchaseQuoteForBuy(
+        _userId: string,
+        _currency: string,
+        _amount: string,
+    ): Promise<ProviderResponse<PurchaseQuote>> {
+        return this.getResponse("getPurchaseQuoteForBuy");
     }
 
-    async getPurchaseQuoteForSell(_userId: string, _currency: string, _amount: string): Promise<ProviderResponse<PurchaseQuote>> {
-        return this.getResponse('getPurchaseQuoteForSell');
+    async getPurchaseQuoteForSell(
+        _userId: string,
+        _currency: string,
+        _amount: string,
+    ): Promise<ProviderResponse<PurchaseQuote>> {
+        return this.getResponse("getPurchaseQuoteForSell");
     }
 }

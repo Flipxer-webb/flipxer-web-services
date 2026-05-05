@@ -63,10 +63,22 @@ import { LiquidityAlertService } from "../services/liquidity-alert.service";
 
 describe("OperationsModule", () => {
     it("registers imports, controllers, providers, and exports", () => {
-        const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, OperationsModule) as unknown[];
-        const controllers = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, OperationsModule) as unknown[];
-        const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, OperationsModule) as unknown[];
-        const exportsMeta = Reflect.getMetadata(MODULE_METADATA.EXPORTS, OperationsModule) as unknown[];
+        const imports = Reflect.getMetadata(
+            MODULE_METADATA.IMPORTS,
+            OperationsModule,
+        ) as unknown[];
+        const controllers = Reflect.getMetadata(
+            MODULE_METADATA.CONTROLLERS,
+            OperationsModule,
+        ) as unknown[];
+        const providers = Reflect.getMetadata(
+            MODULE_METADATA.PROVIDERS,
+            OperationsModule,
+        ) as unknown[];
+        const exportsMeta = Reflect.getMetadata(
+            MODULE_METADATA.EXPORTS,
+            OperationsModule,
+        ) as unknown[];
 
         expect(Array.isArray(imports)).toBe(true);
         expect(Array.isArray(controllers)).toBe(true);

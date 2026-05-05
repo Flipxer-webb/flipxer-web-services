@@ -3,7 +3,9 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -29,7 +31,12 @@ function makePrisma() {
         bankDetail: { findFirst: jest.fn() },
         assetWallet: { findFirst: jest.fn() },
         cryptoWalletAddress: { findFirst: jest.fn() },
-        order: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+        order: {
+            create: jest.fn(),
+            findFirst: jest.fn(),
+            findUnique: jest.fn(),
+            update: jest.fn(),
+        },
     };
 }
 
@@ -60,7 +67,9 @@ describe("SellOrderService", () => {
     beforeEach(async () => {
         prisma = makePrisma();
         const mockRate = {
-            getAssetRate: jest.fn().mockResolvedValue({ buyRate: 70000000, sellRate: 69000000 }),
+            getAssetRate: jest
+                .fn()
+                .mockResolvedValue({ buyRate: 70000000, sellRate: 69000000 }),
         };
         const mockWsGateway = {
             notifyTransactionUpdate: jest.fn(),
@@ -69,21 +78,26 @@ describe("SellOrderService", () => {
         const mockTradeHelpers = {
             calculateFee: jest.fn(),
             ensureSupportedTradeAsset: jest.fn((asset: string) =>
-                String(asset).trim().toUpperCase()
+                String(asset).trim().toUpperCase(),
             ),
             validateMinimumAmountInUSDT: jest.fn().mockResolvedValue(undefined),
-            normalizeNetworkInput: jest.fn((network?: string | null) =>
-                network?.trim().toLowerCase() ?? null,
+            normalizeNetworkInput: jest.fn(
+                (network?: string | null) =>
+                    network?.trim().toLowerCase() ?? null,
             ),
         };
-        const mockWallet = { syncWallet: jest.fn().mockResolvedValue(undefined) };
+        const mockWallet = {
+            syncWallet: jest.fn().mockResolvedValue(undefined),
+        };
         const mockWalletMgmt = { invalidateWalletCache: jest.fn() };
         const mockWithdrawalHandler = {
             handle: jest.fn().mockResolvedValue(undefined),
             initiateFiatPayout: jest.fn().mockResolvedValue(undefined),
         };
         const mockLedger = {
-            hold: jest.fn().mockResolvedValue({ success: true, entry: { id: 1 } }),
+            hold: jest
+                .fn()
+                .mockResolvedValue({ success: true, entry: { id: 1 } }),
             releaseHold: jest.fn().mockResolvedValue({ success: true }),
             releaseHoldWithPlatformEntry: jest.fn().mockResolvedValue({
                 success: true,
@@ -92,12 +106,23 @@ describe("SellOrderService", () => {
             pairedCredit: jest.fn().mockResolvedValue({ success: true }),
         };
         const mockTransactionMonitor = {
-            validateBeforeExecution: jest.fn().mockResolvedValue({ success: true, blocked: false }),
+            validateBeforeExecution: jest
+                .fn()
+                .mockResolvedValue({ success: true, blocked: false }),
         };
-        const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
-        const mockSlack = { sendAlert: jest.fn().mockResolvedValue(undefined), sendWebhookFailureAlert: jest.fn().mockResolvedValue(undefined) };
+        const mockNotification = {
+            notify: jest.fn().mockResolvedValue(undefined),
+        };
+        const mockSlack = {
+            sendAlert: jest.fn().mockResolvedValue(undefined),
+            sendWebhookFailureAlert: jest.fn().mockResolvedValue(undefined),
+        };
         const mockLock = {
-            withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
+            withLock: jest
+                .fn()
+                .mockImplementation(
+                    async (_k: string, fn: () => Promise<any>) => fn(),
+                ),
         };
 
         const module: TestingModule = await Test.createTestingModule({
@@ -108,9 +133,15 @@ describe("SellOrderService", () => {
                 { provide: TradeHelpersService, useValue: mockTradeHelpers },
                 { provide: WalletAddressService, useValue: mockWallet },
                 { provide: WalletManagementService, useValue: mockWalletMgmt },
-                { provide: WithdrawalWebhookHandler, useValue: mockWithdrawalHandler },
+                {
+                    provide: WithdrawalWebhookHandler,
+                    useValue: mockWithdrawalHandler,
+                },
                 { provide: LedgerService, useValue: mockLedger },
-                { provide: TransactionMonitorService, useValue: mockTransactionMonitor },
+                {
+                    provide: TransactionMonitorService,
+                    useValue: mockTransactionMonitor,
+                },
                 { provide: RateService, useValue: mockRate },
                 { provide: NotificationDispatcher, useValue: mockNotification },
                 { provide: SlackWebhookService, useValue: mockSlack },
@@ -135,7 +166,6 @@ describe("SellOrderService", () => {
                 bankName: "GTBank",
             });
 
-
             const result = await service.calculateSellQuote(
                 mockUser,
                 { asset: "btc", amount: 0.1 } as any,
@@ -150,7 +180,6 @@ describe("SellOrderService", () => {
 
         it("should throw when no bank detail for non-internal call", async () => {
             prisma.bankDetail.findFirst.mockResolvedValue(null);
-
 
             await expect(
                 service.calculateSellQuote(
@@ -218,11 +247,13 @@ describe("SellOrderService", () => {
                 new Error("Minimum sell amount is 3 USDT equivalent."),
             );
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow(
-                "Minimum sell amount is 3 USDT equivalent.",
-            );
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow("Minimum sell amount is 3 USDT equivalent.");
 
-            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+            expect(
+                tradeHelpers.validateMinimumAmountInUSDT,
+            ).toHaveBeenCalledWith(
                 dto.amount,
                 "BTC",
                 MIN_SELL_AMOUNT_USDT,
@@ -233,7 +264,10 @@ describe("SellOrderService", () => {
         });
 
         it("should return existing order on duplicate idempotency key", async () => {
-            prisma.order.findFirst.mockResolvedValue({ id: 99, status: "completed" });
+            prisma.order.findFirst.mockResolvedValue({
+                id: 99,
+                status: "completed",
+            });
 
             const result = await service.sellCryptoOrder(mockUser, dto);
 
@@ -249,9 +283,9 @@ describe("SellOrderService", () => {
                 reason: "High risk detected",
             });
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow(
-                "High risk detected",
-            );
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow("High risk detected");
         });
 
         it("should throw when hold fails (insufficient balance)", async () => {
@@ -261,9 +295,9 @@ describe("SellOrderService", () => {
                 error: "Insufficient balance",
             });
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow(
-                "Insufficient",
-            );
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow("Insufficient");
         });
 
         it("should create order and trigger payout on success", async () => {
@@ -286,12 +320,14 @@ describe("SellOrderService", () => {
             });
 
             const result = await service.sellCryptoOrder(mockUser, dto);
-            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            const withdrawalHandler = service[
+                "withdrawalWebhookHandler"
+            ] as any;
 
             expect(ledgerService.hold).toHaveBeenCalled();
-            expect(ledgerService.releaseHoldWithPlatformEntry).toHaveBeenCalledWith(
-                expect.objectContaining({ settle: true }),
-            );
+            expect(
+                ledgerService.releaseHoldWithPlatformEntry,
+            ).toHaveBeenCalledWith(expect.objectContaining({ settle: true }));
             expect(prisma.order.create).toHaveBeenCalled();
             expect(withdrawalHandler.initiateFiatPayout).toHaveBeenCalled();
             expect(result.message).toContain("Order placed");
@@ -304,7 +340,9 @@ describe("SellOrderService", () => {
                 error: "Settlement failed",
             });
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
 
             expect(ledgerService.releaseHold).toHaveBeenCalled();
         });
@@ -365,15 +403,24 @@ describe("SellOrderService", () => {
             });
 
             // Payout handler throws
-            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
-            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(new Error("Nomba unavailable"));
+            const withdrawalHandler = service[
+                "withdrawalWebhookHandler"
+            ] as any;
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(
+                new Error("Nomba unavailable"),
+            );
 
             // Refund succeeds so we get to the WebSocket emit
-            ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 88 } });
+            ledgerService.pairedCredit.mockResolvedValue({
+                success: true,
+                userEntry: { id: 88 },
+            });
 
             const wsGateway = service["wsGateway"] as any;
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
 
             // First call = processing, second call = failed
             const calls = wsGateway.notifyTransactionUpdate.mock.calls;
@@ -407,10 +454,11 @@ describe("SellOrderService", () => {
 
             await service.sellCryptoOrder(mockUser, dto);
 
-            const failedEmit = wsGateway.notifyTransactionUpdate.mock.calls.find(
-                ([_uid, payload]: [number, any]) =>
-                    payload?.transaction?.streamlinedStatus === "failed",
-            );
+            const failedEmit =
+                wsGateway.notifyTransactionUpdate.mock.calls.find(
+                    ([_uid, payload]: [number, any]) =>
+                        payload?.transaction?.streamlinedStatus === "failed",
+                );
             expect(failedEmit).toBeUndefined();
         });
 
@@ -428,17 +476,29 @@ describe("SellOrderService", () => {
                 updatedAt: new Date(),
             };
             prisma.order.create.mockResolvedValue(createdOrder);
-            prisma.order.update.mockResolvedValue({ ...createdOrder, status: "failed" });
+            prisma.order.update.mockResolvedValue({
+                ...createdOrder,
+                status: "failed",
+            });
 
-            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
-            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(new Error("Nomba down"));
+            const withdrawalHandler = service[
+                "withdrawalWebhookHandler"
+            ] as any;
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(
+                new Error("Nomba down"),
+            );
 
             // Refund also fails
-            ledgerService.pairedCredit.mockResolvedValue({ success: false, error: "Ledger locked" });
+            ledgerService.pairedCredit.mockResolvedValue({
+                success: false,
+                error: "Ledger locked",
+            });
 
             const slack = service["slackWebhookService"] as any;
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
 
             expect(slack.sendWebhookFailureAlert).toHaveBeenCalledWith(
                 "sell",
@@ -462,20 +522,33 @@ describe("SellOrderService", () => {
                 updatedAt: new Date(),
             };
             prisma.order.create.mockResolvedValue(createdOrder);
-            prisma.order.update.mockResolvedValue({ ...createdOrder, status: "failed" });
+            prisma.order.update.mockResolvedValue({
+                ...createdOrder,
+                status: "failed",
+            });
 
-            const withdrawalHandler = service["withdrawalWebhookHandler"] as any;
+            const withdrawalHandler = service[
+                "withdrawalWebhookHandler"
+            ] as any;
             // Throw a non-Error value
-            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce("string error");
+            withdrawalHandler.initiateFiatPayout.mockRejectedValueOnce(
+                "string error",
+            );
 
-            ledgerService.pairedCredit.mockResolvedValue({ success: true, userEntry: { id: 99 } });
+            ledgerService.pairedCredit.mockResolvedValue({
+                success: true,
+                userEntry: { id: 99 },
+            });
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
 
             expect(prisma.order.update).toHaveBeenCalledWith(
                 expect.objectContaining({
                     data: expect.objectContaining({
-                        transaction_note: expect.stringContaining("string error"),
+                        transaction_note:
+                            expect.stringContaining("string error"),
                     }),
                 }),
             );
@@ -489,7 +562,9 @@ describe("SellOrderService", () => {
                 error: "Settlement failed",
             });
 
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
 
             // Hold was never settled, so releaseHold should be called in outer catch
             expect(ledgerService.releaseHold).toHaveBeenCalled();
@@ -503,10 +578,14 @@ describe("SellOrderService", () => {
                 error: "Settlement failed",
             });
             // Also make releaseHold throw
-            ledgerService.releaseHold.mockRejectedValueOnce(new Error("Release also failed"));
+            ledgerService.releaseHold.mockRejectedValueOnce(
+                new Error("Release also failed"),
+            );
 
             // Should still throw the original error, not the release failure
-            await expect(service.sellCryptoOrder(mockUser, dto)).rejects.toThrow();
+            await expect(
+                service.sellCryptoOrder(mockUser, dto),
+            ).rejects.toThrow();
         });
     });
 
@@ -515,7 +594,9 @@ describe("SellOrderService", () => {
     describe("triggerBestEffortWalletSync", () => {
         it("logs warning when wallet sync fails", async () => {
             const walletService = service["walletAddressService"] as any;
-            walletService.syncWallet.mockRejectedValueOnce(new Error("Sync timeout"));
+            walletService.syncWallet.mockRejectedValueOnce(
+                new Error("Sync timeout"),
+            );
             const loggerSpy = jest.spyOn(service["logger"], "warn");
 
             // Call the private method directly
@@ -540,7 +621,12 @@ describe("SellOrderService", () => {
 
     describe("executeInternalSell", () => {
         it("should hold and settle funds for swap sell leg", async () => {
-            await service.executeInternalSell(mockUser, 0.1, "BTC", "swap-ref-1");
+            await service.executeInternalSell(
+                mockUser,
+                0.1,
+                "BTC",
+                "swap-ref-1",
+            );
 
             expect(ledgerService.hold).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -549,9 +635,9 @@ describe("SellOrderService", () => {
                     amount: 0.1,
                 }),
             );
-            expect(ledgerService.releaseHoldWithPlatformEntry).toHaveBeenCalledWith(
-                expect.objectContaining({ settle: true }),
-            );
+            expect(
+                ledgerService.releaseHoldWithPlatformEntry,
+            ).toHaveBeenCalledWith(expect.objectContaining({ settle: true }));
         });
 
         it("should throw when hold fails", async () => {

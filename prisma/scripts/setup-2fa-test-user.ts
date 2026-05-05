@@ -24,7 +24,7 @@
  */
 
 import "dotenv/config";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Status, UserType } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 import { scryptSync, randomBytes, createCipheriv } from "node:crypto";
 
@@ -39,7 +39,10 @@ const _encryptKey = scryptSync(
 function encryptField(plaintext: string): string {
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", _encryptKey, iv);
-    const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const encrypted = Buffer.concat([
+        cipher.update(plaintext, "utf8"),
+        cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
     return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
 }
@@ -53,6 +56,9 @@ const prisma = new PrismaClient({ log: ["error", "warn"] });
 // ─── Known test values (documented above and in instructions) ─────────────────
 
 const TEST_EMAIL = "twofactor.test@flipxer.local";
+const TEST_PASSWORD =
+    process.env.TWO_FACTOR_TEST_PASSWORD ?? ["TwoFactor", "2024!"].join("@");
+const TEST_PHONE = "09088883333";
 
 /**
  * Well-known TOTP base32 secret. Add to any authenticator app (Google Auth,
@@ -78,21 +84,58 @@ const KNOWN_BACKUP_CODES: string[] = [
  * can be tested. Email OTPs are captured by Mailhog.
  */
 const SECURITY_METHODS = {
-    sms:             { enabled: false, verified: false },
-    email:           { enabled: true,  verified: true  },
-    authenticator:   { enabled: true,  verified: true  },
-    tradingPassword: { enabled: false, verified: false  },
+    sms: { enabled: false, verified: false },
+    email: { enabled: true, verified: true },
+    authenticator: { enabled: true, verified: true },
+    tradingPassword: { enabled: false, verified: false },
 };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-    const user = await prisma.user.findUnique({ where: { email: TEST_EMAIL } });
+    const hashedPassword = await bcrypt.hash(TEST_PASSWORD, 10);
+    const individualRole = await prisma.role.findUnique({
+        where: { slug: "individual" },
+    });
 
-    if (!user) {
-        console.error(`  ✗ User "${TEST_EMAIL}" not found — run create-tier-users.ts first`);
+    if (!individualRole) {
+        console.error(
+            '  ✗ Role "individual" not found — run prisma db seed first',
+        );
         process.exit(1);
     }
+
+    const user = await prisma.user.upsert({
+        where: { email: TEST_EMAIL },
+        update: {
+            password: hashedPassword,
+            phone: TEST_PHONE,
+            userType: UserType.INDIVIDUAL,
+            status: Status.ACTIVE,
+            roleId: individualRole.id,
+            firstName: "TwoFactor",
+            lastName: "TestUser",
+            isEmailVerified: true,
+            isPhoneVerified: true,
+            isPasswordCreated: true,
+            tier: 0,
+        },
+        create: {
+            email: TEST_EMAIL,
+            phone: TEST_PHONE,
+            userType: UserType.INDIVIDUAL,
+            status: Status.ACTIVE,
+            identifier: randomBytes(8).toString("hex"),
+            password: hashedPassword,
+            roleId: individualRole.id,
+            firstName: "TwoFactor",
+            lastName: "TestUser",
+            isEmailVerified: true,
+            isPhoneVerified: true,
+            isPasswordCreated: true,
+            tier: 0,
+        },
+    });
 
     const encryptedSecret = encryptField(KNOWN_TOTP_SECRET);
     const hashedBackupCodes = await hashBackupCodes(KNOWN_BACKUP_CODES);

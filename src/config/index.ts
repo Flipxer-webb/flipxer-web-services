@@ -119,8 +119,8 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         type: RequiredEnvironmentTypes.String,
     },
 
-     // SECURITY: QUIDAX_WEBHOOK_KEY is required - without it, all Quidax webhooks
-     // are rejected and crypto deposits/withdrawals/swaps will never fulfill.
+    // SECURITY: QUIDAX_WEBHOOK_KEY is required - without it, all Quidax webhooks
+    // are rejected and crypto deposits/withdrawals/swaps will never fulfill.
     {
         name: "QUIDAX_WEBHOOK_KEY",
         type: RequiredEnvironmentTypes.String,
@@ -131,7 +131,7 @@ const runtimeEnvironment: RequiredEnvironment[] = [
         name: "NOMBA_WEBHOOK_SECRET",
         type: RequiredEnvironmentTypes.String,
     },
-     // FRONTEND_URL is required - used for CORS, email links, and redirect URLs.
+    // FRONTEND_URL is required - used for CORS, email links, and redirect URLs.
     // Hardcoded fallback removed to prevent accidental cross-environment leakage.
     {
         name: "FRONTEND_URL",
@@ -200,29 +200,33 @@ console.log(`Missing (${missingVars.length}):`, missingVars.join(", "));
 console.log("==================================");
 
 const placeholderVars = placeholderSensitiveEnvironment.filter((name) =>
-    isPlaceholderEnvValue(process.env[name])
+    isPlaceholderEnvValue(process.env[name]),
 );
 
-if (process.env.NODE_ENV !== 'test' && missingVars.length > 0) {
+if (process.env.NODE_ENV !== "test" && missingVars.length > 0) {
     const varList = missingVars.map((v) => `  - ${v}`).join("\n");
-    console.error(`\n❌ FATAL: Missing required environment variables:\n${varList}\n`);
     console.error(
-        "Please add these variables to your Render Environment tab.\n"
+        `\n❌ FATAL: Missing required environment variables:\n${varList}\n`,
+    );
+    console.error(
+        "Please add these variables to your Render Environment tab.\n",
     );
     // Exit gracefully instead of throwing to get a clean error message
     process.exit(1);
 }
 
-if (process.env.NODE_ENV !== 'test' && placeholderVars.length > 0) {
+if (process.env.NODE_ENV !== "test" && placeholderVars.length > 0) {
     const varList = placeholderVars.map((v) => `  - ${v}`).join("\n");
-    console.error(`\n❌ FATAL: Placeholder environment values detected:\n${varList}\n`);
     console.error(
-        "Replace template placeholder values with real local or deployment secrets before starting the app.\n"
+        `\n❌ FATAL: Placeholder environment values detected:\n${varList}\n`,
+    );
+    console.error(
+        "Replace template placeholder values with real local or deployment secrets before starting the app.\n",
     );
     process.exit(1);
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== "test") {
     try {
         validate(runtimeEnvironment);
     } catch (error) {
@@ -233,8 +237,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // App
-export const allowedDomains =
-    process.env.ALLOWED_DOMAINS?.split(",");
+export const allowedDomains = process.env.ALLOWED_DOMAINS?.split(",");
 export const whitelist: (string | RegExp)[] = allowedDomains ?? [];
 export const isProduction: boolean = process.env.ENVIRONMENT === "production";
 export const port: number = Number.parseInt(process.env.PORT ?? "4000");
@@ -477,7 +480,10 @@ export const fincraOptions: FincraOptions = {
     secretKey: process.env.FINCRA_SECRET_KEY || "",
     publicKey: process.env.FINCRA_PUBLIC_KEY || "",
     businessId: process.env.FINCRA_BUSINESS_ID || "",
-    redirectUrl: process.env.FINCRA_REDIRECT_URL || process.env.PAYSTACK_CALLBACK_URL || "",
+    redirectUrl:
+        process.env.FINCRA_REDIRECT_URL ||
+        process.env.PAYSTACK_CALLBACK_URL ||
+        "",
     webhookSecret: process.env.FINCRA_WEBHOOK_SECRET || "",
     proxyUrl: process.env.FINCRA_PROXY_URL || "", // e.g., http://user:pass@proxy.quotaguard.com:9293
 };
@@ -489,9 +495,11 @@ const rawSellPayoutProvider = (process.env.SELL_PAYOUT_PROVIDER || "fincra")
     .trim()
     .toLowerCase();
 
-if (!sellPayoutProviders.includes(rawSellPayoutProvider as SellPayoutProvider)) {
+if (
+    !sellPayoutProviders.includes(rawSellPayoutProvider as SellPayoutProvider)
+) {
     throw new Error(
-        `Invalid SELL_PAYOUT_PROVIDER: ${rawSellPayoutProvider}. Expected one of: ${sellPayoutProviders.join(", ")}`
+        `Invalid SELL_PAYOUT_PROVIDER: ${rawSellPayoutProvider}. Expected one of: ${sellPayoutProviders.join(", ")}`,
     );
 }
 
@@ -504,9 +512,11 @@ const rawBuyPaymentProvider = (process.env.BUY_PAYMENT_PROVIDER || "nomba")
     .trim()
     .toLowerCase();
 
-if (!buyPaymentProviders.includes(rawBuyPaymentProvider as BuyPaymentProvider)) {
+if (
+    !buyPaymentProviders.includes(rawBuyPaymentProvider as BuyPaymentProvider)
+) {
     throw new Error(
-        `Invalid BUY_PAYMENT_PROVIDER: ${rawBuyPaymentProvider}. Expected one of: ${buyPaymentProviders.join(", ")}`
+        `Invalid BUY_PAYMENT_PROVIDER: ${rawBuyPaymentProvider}. Expected one of: ${buyPaymentProviders.join(", ")}`,
     );
 }
 
@@ -514,8 +524,8 @@ export const buyPaymentProvider = rawBuyPaymentProvider as BuyPaymentProvider;
 
 export const blockedCountries: string[] = process.env.BLOCKED_COUNTRIES
     ? process.env.BLOCKED_COUNTRIES.split(",").map((c) =>
-        c.trim().toUpperCase()
-    )
+          c.trim().toUpperCase(),
+      )
     : [];
 
 // Firebase (optional - push notifications will not work without credentials)
@@ -541,7 +551,8 @@ export interface SendchampConfig {
 export const sendchampConfig: SendchampConfig = {
     accessKey: process.env.SENDCHAMP_ACCESS_KEY || "",
     senderId: process.env.SENDCHAMP_SENDER_ID || "Flipxer",
-    baseUrl: process.env.SENDCHAMP_BASE_URL || "https://api.sendchamp.com/api/v1",
+    baseUrl:
+        process.env.SENDCHAMP_BASE_URL || "https://api.sendchamp.com/api/v1",
 };
 
 export const sendchampOptions: SendchampOptions = {
@@ -586,11 +597,13 @@ export interface AmlBotConfig {
 }
 
 export const amlBotConfig: AmlBotConfig = {
-    baseUrl: process.env.AMLBOT_BASE_URL || "https://extrnlapiendpoint.silencatech.com",
+    baseUrl:
+        process.env.AMLBOT_BASE_URL ||
+        "https://extrnlapiendpoint.silencatech.com",
     accessKey: process.env.AMLBOT_ACCESS_KEY || "",
     accessId: process.env.AMLBOT_ACCESS_ID || "",
 };
 
 // Slack webhook for payout failure alerts (optional)
-export const slackPayoutAlertWebhookUrl = process.env.SLACK_PAYOUT_ALERT_WEBHOOK_URL || "";
-
+export const slackPayoutAlertWebhookUrl =
+    process.env.SLACK_PAYOUT_ALERT_WEBHOOK_URL || "";

@@ -36,10 +36,10 @@ export interface UserReportRow {
     tier: number;
     country: string;
     status: string;
-    isEmailVerified: boolean;
-    isPhoneVerified: boolean;
-    isBvnVerified: boolean;
-    isDocumentVerified: boolean;
+    emailVerified: boolean;
+    phoneVerified: boolean;
+    governmentIdVerified: boolean;
+    documentVerified: boolean;
     createdAt: string;
     lastLogin: string;
     loginCount: number;
@@ -70,8 +70,8 @@ export interface TaxReportRow {
 }
 
 export interface ReportConfig {
-    type: 'transactions' | 'users' | 'revenue' | 'tax';
-    format: 'csv' | 'json';
+    type: "transactions" | "users" | "revenue" | "tax";
+    format: "csv" | "json";
     filters: ReportFilters;
     includeHeaders?: boolean;
 }

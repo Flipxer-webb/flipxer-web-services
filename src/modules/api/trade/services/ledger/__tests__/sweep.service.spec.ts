@@ -3,7 +3,9 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -52,7 +54,11 @@ describe("SweepService", () => {
         prisma = makePrisma();
         const mockQuidax = { createWithdrawerRequest: jest.fn() };
         const mockLock = {
-            withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
+            withLock: jest
+                .fn()
+                .mockImplementation(
+                    async (_k: string, fn: () => Promise<any>) => fn(),
+                ),
         };
         const mockLedger = { updateSweepStatus: jest.fn() };
         const mockSlack = { sendWebhookFailureAlert: jest.fn() };
@@ -82,8 +88,11 @@ describe("SweepService", () => {
         it("should return pending deposit entries", async () => {
             prisma.ledgerEntry.findMany.mockResolvedValue([
                 {
-                    id: "le-1", userId: 1, currency: "BTC",
-                    credit: new Decimal("0.5"), createdAt: new Date(),
+                    id: "le-1",
+                    userId: 1,
+                    currency: "BTC",
+                    credit: new Decimal("0.5"),
+                    createdAt: new Date(),
                     user: { cryptoSubAccountId: "sub-1" },
                 },
             ]);
@@ -131,7 +140,10 @@ describe("SweepService", () => {
             // calls findUnique to validate transition, etc.
             prisma.ledgerEntry.findUnique
                 .mockResolvedValueOnce(entry) // executeSweep: get entry
-                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT }) // updateSweepStatus: PENDING → IN_PROGRESS
+                .mockResolvedValueOnce({
+                    sweepStatus: SweepStatus.PENDING,
+                    type: LedgerType.DEPOSIT,
+                }) // updateSweepStatus: PENDING → IN_PROGRESS
                 .mockResolvedValue(entry); // any subsequent
             prisma.ledgerEntry.update.mockResolvedValue(entry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
@@ -171,13 +183,21 @@ describe("SweepService", () => {
             const result = await service.initiateSweep("le-1");
 
             expect(result.success).toBe(true); // Already processed
-            expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
+            expect(
+                quidaxService.createWithdrawerRequest,
+            ).not.toHaveBeenCalled();
         });
 
         it("should mark NOT_APPLICABLE when user has no sub-account", async () => {
             prisma.ledgerEntry.findUnique
-                .mockResolvedValueOnce({ ...entry, user: { id: 1, cryptoSubAccountId: null } })
-                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT });
+                .mockResolvedValueOnce({
+                    ...entry,
+                    user: { id: 1, cryptoSubAccountId: null },
+                })
+                .mockResolvedValueOnce({
+                    sweepStatus: SweepStatus.PENDING,
+                    type: LedgerType.DEPOSIT,
+                });
             prisma.ledgerEntry.update.mockResolvedValue(entry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
@@ -189,22 +209,41 @@ describe("SweepService", () => {
 
         it("should auto-complete dust amounts below minimum", async () => {
             prisma.ledgerEntry.findUnique
-                .mockResolvedValueOnce({ ...entry, credit: new Decimal("0.000001") })
-                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT });
+                .mockResolvedValueOnce({
+                    ...entry,
+                    credit: new Decimal("0.000001"),
+                })
+                .mockResolvedValueOnce({
+                    sweepStatus: SweepStatus.PENDING,
+                    type: LedgerType.DEPOSIT,
+                });
             prisma.ledgerEntry.update.mockResolvedValue(entry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
             const result = await service.initiateSweep("le-1");
 
             expect(result.success).toBe(true);
-            expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
+            expect(
+                quidaxService.createWithdrawerRequest,
+            ).not.toHaveBeenCalled();
         });
 
         it("should sweep newly configured XRP deposits instead of treating them as unknown currency", async () => {
             prisma.ledgerEntry.findUnique
-                .mockResolvedValueOnce({ ...entry, currency: "XRP", credit: new Decimal("5") })
-                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT })
-                .mockResolvedValue({ ...entry, currency: "XRP", credit: new Decimal("5") });
+                .mockResolvedValueOnce({
+                    ...entry,
+                    currency: "XRP",
+                    credit: new Decimal("5"),
+                })
+                .mockResolvedValueOnce({
+                    sweepStatus: SweepStatus.PENDING,
+                    type: LedgerType.DEPOSIT,
+                })
+                .mockResolvedValue({
+                    ...entry,
+                    currency: "XRP",
+                    credit: new Decimal("5"),
+                });
             prisma.ledgerEntry.update.mockResolvedValue(entry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
             quidaxService.createWithdrawerRequest.mockResolvedValue({
@@ -237,9 +276,20 @@ describe("SweepService", () => {
             "should sweep newly configured $currency deposits instead of treating them as unknown currency",
             async ({ currency, amount }) => {
                 prisma.ledgerEntry.findUnique
-                    .mockResolvedValueOnce({ ...entry, currency, credit: new Decimal(amount) })
-                    .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT })
-                    .mockResolvedValue({ ...entry, currency, credit: new Decimal(amount) });
+                    .mockResolvedValueOnce({
+                        ...entry,
+                        currency,
+                        credit: new Decimal(amount),
+                    })
+                    .mockResolvedValueOnce({
+                        sweepStatus: SweepStatus.PENDING,
+                        type: LedgerType.DEPOSIT,
+                    })
+                    .mockResolvedValue({
+                        ...entry,
+                        currency,
+                        credit: new Decimal(amount),
+                    });
                 prisma.ledgerEntry.update.mockResolvedValue(entry);
                 ledgerService.updateSweepStatus.mockResolvedValue(undefined);
                 quidaxService.createWithdrawerRequest.mockResolvedValue({
@@ -255,7 +305,9 @@ describe("SweepService", () => {
                         transactionId: `quidax-tx-${currency.toLowerCase()}-1`,
                     }),
                 );
-                expect(quidaxService.createWithdrawerRequest).toHaveBeenCalledWith(
+                expect(
+                    quidaxService.createWithdrawerRequest,
+                ).toHaveBeenCalledWith(
                     expect.objectContaining({
                         currency: currency.toLowerCase(),
                         amount,
@@ -265,7 +317,9 @@ describe("SweepService", () => {
         );
 
         it("should handle lock already acquired gracefully", async () => {
-            lockService.withLock.mockRejectedValue(new Error("Failed to acquire lock"));
+            lockService.withLock.mockRejectedValue(
+                new Error("Failed to acquire lock"),
+            );
 
             const result = await service.initiateSweep("le-1");
 
@@ -279,14 +333,17 @@ describe("SweepService", () => {
     describe("completeSweep", () => {
         it("should update sweep status to COMPLETED", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                id: "le-1", sweepStatus: SweepStatus.IN_PROGRESS, type: LedgerType.DEPOSIT,
+                id: "le-1",
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                type: LedgerType.DEPOSIT,
             });
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
             await service.completeSweep("le-1");
 
             expect(ledgerService.updateSweepStatus).toHaveBeenCalledWith(
-                "le-1", SweepStatus.COMPLETED,
+                "le-1",
+                SweepStatus.COMPLETED,
             );
         });
     });
@@ -294,25 +351,30 @@ describe("SweepService", () => {
     describe("failSweep", () => {
         it("should update sweep status to FAILED with reason", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                id: "le-1", sweepStatus: SweepStatus.IN_PROGRESS, type: LedgerType.DEPOSIT,
+                id: "le-1",
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                type: LedgerType.DEPOSIT,
             });
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
             await service.failSweep("le-1", "Quidax timeout");
 
             expect(ledgerService.updateSweepStatus).toHaveBeenCalledWith(
-                "le-1", SweepStatus.FAILED,
+                "le-1",
+                SweepStatus.FAILED,
             );
         });
 
         it("should throw when failSweep transition is invalid", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                id: "le-1", sweepStatus: SweepStatus.COMPLETED, type: LedgerType.DEPOSIT,
+                id: "le-1",
+                sweepStatus: SweepStatus.COMPLETED,
+                type: LedgerType.DEPOSIT,
             });
 
-            await expect(service.failSweep("le-1", "late fail")).rejects.toThrow(
-                "Invalid sweep transition",
-            );
+            await expect(
+                service.failSweep("le-1", "late fail"),
+            ).rejects.toThrow("Invalid sweep transition");
         });
     });
 
@@ -338,7 +400,11 @@ describe("SweepService", () => {
             });
 
             await expect(
-                service.handleSweepConfirmation("quidax-tx-1", "failed", "late webhook"),
+                service.handleSweepConfirmation(
+                    "quidax-tx-1",
+                    "failed",
+                    "late webhook",
+                ),
             ).resolves.toBeUndefined();
 
             expect(ledgerService.updateSweepStatus).not.toHaveBeenCalled();
@@ -370,7 +436,9 @@ describe("SweepService", () => {
 
     describe("processPendingSweeps", () => {
         it("should return 0 when another pod holds the job lock", async () => {
-            lockService.withLock.mockRejectedValueOnce(new Error("Failed to acquire lock"));
+            lockService.withLock.mockRejectedValueOnce(
+                new Error("Failed to acquire lock"),
+            );
 
             const result = await service.processPendingSweeps();
 
@@ -384,7 +452,11 @@ describe("SweepService", () => {
             ]);
             jest.spyOn(service, "initiateSweep")
                 .mockResolvedValueOnce({ success: true, ledgerEntryId: "le-1" })
-                .mockResolvedValueOnce({ success: false, ledgerEntryId: "le-2", error: "boom" });
+                .mockResolvedValueOnce({
+                    success: false,
+                    ledgerEntryId: "le-2",
+                    error: "boom",
+                });
 
             const result = await service.processPendingSweeps();
 
@@ -397,7 +469,9 @@ describe("SweepService", () => {
 
     describe("retryFailedSweeps", () => {
         it("should return 0 when retry job lock is already held", async () => {
-            lockService.withLock.mockRejectedValueOnce(new Error("Failed to acquire lock"));
+            lockService.withLock.mockRejectedValueOnce(
+                new Error("Failed to acquire lock"),
+            );
 
             const result = await service.retryFailedSweeps();
 
@@ -405,9 +479,10 @@ describe("SweepService", () => {
         });
 
         it("should delegate to inner retry implementation under lock", async () => {
-            jest
-                .spyOn(service as any, "_retryFailedSweepsInner")
-                .mockResolvedValueOnce(2);
+            jest.spyOn(
+                service as any,
+                "_retryFailedSweepsInner",
+            ).mockResolvedValueOnce(2);
 
             const result = await service.retryFailedSweeps(5);
 
@@ -415,7 +490,11 @@ describe("SweepService", () => {
             expect(lockService.withLock).toHaveBeenCalledWith(
                 "job:sweep:retry_failed",
                 expect.any(Function),
-                expect.objectContaining({ ttlMs: 120000, maxWaitMs: 0, strict: false }),
+                expect.objectContaining({
+                    ttlMs: 120000,
+                    maxWaitMs: 0,
+                    strict: false,
+                }),
             );
         });
     });
@@ -435,7 +514,10 @@ describe("SweepService", () => {
         it("should mark unknown currencies as failed without rethrowing a transition error", async () => {
             prisma.ledgerEntry.findUnique
                 .mockResolvedValueOnce(baseEntry)
-                .mockResolvedValueOnce({ sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT });
+                .mockResolvedValueOnce({
+                    sweepStatus: SweepStatus.PENDING,
+                    type: LedgerType.DEPOSIT,
+                });
             prisma.ledgerEntry.update.mockResolvedValue(baseEntry);
             ledgerService.updateSweepStatus.mockResolvedValue(undefined);
 
@@ -452,7 +534,9 @@ describe("SweepService", () => {
                 "le-unknown",
                 SweepStatus.FAILED,
             );
-            expect(quidaxService.createWithdrawerRequest).not.toHaveBeenCalled();
+            expect(
+                quidaxService.createWithdrawerRequest,
+            ).not.toHaveBeenCalled();
         });
     });
 
@@ -478,7 +562,8 @@ describe("SweepService", () => {
 
         it("should return true when sweep is COMPLETED", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                sweepStatus: SweepStatus.COMPLETED, type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.COMPLETED,
+                type: LedgerType.DEPOSIT,
             });
 
             const result = await service.canWithdraw("le-1");
@@ -487,7 +572,8 @@ describe("SweepService", () => {
 
         it("should return true when sweep is NOT_APPLICABLE", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                sweepStatus: SweepStatus.NOT_APPLICABLE, type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.NOT_APPLICABLE,
+                type: LedgerType.DEPOSIT,
             });
 
             const result = await service.canWithdraw("le-1");
@@ -496,7 +582,8 @@ describe("SweepService", () => {
 
         it("should return false when sweep is PENDING", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                sweepStatus: SweepStatus.PENDING, type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.PENDING,
+                type: LedgerType.DEPOSIT,
             });
 
             const result = await service.canWithdraw("le-1");
@@ -505,7 +592,8 @@ describe("SweepService", () => {
 
         it("should return false when sweep is IN_PROGRESS", async () => {
             prisma.ledgerEntry.findUnique.mockResolvedValue({
-                sweepStatus: SweepStatus.IN_PROGRESS, type: LedgerType.DEPOSIT,
+                sweepStatus: SweepStatus.IN_PROGRESS,
+                type: LedgerType.DEPOSIT,
             });
 
             const result = await service.canWithdraw("le-1");
@@ -517,7 +605,9 @@ describe("SweepService", () => {
 
     describe("hasPendingSweeps", () => {
         it("should return true when user has pending sweeps for currency", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "sub-1" });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: "sub-1",
+            });
             // stale entries check
             prisma.ledgerEntry.findMany.mockResolvedValue([]);
             // pending count
@@ -528,7 +618,9 @@ describe("SweepService", () => {
         });
 
         it("should return false when no pending sweeps", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "sub-1" });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: "sub-1",
+            });
             prisma.ledgerEntry.findMany.mockResolvedValue([]);
             prisma.ledgerEntry.count.mockResolvedValue(0);
 
@@ -537,7 +629,9 @@ describe("SweepService", () => {
         });
 
         it("should auto-fail stale pending sweeps for sub-account users", async () => {
-            prisma.user.findUnique.mockResolvedValue({ cryptoSubAccountId: "sub-1" });
+            prisma.user.findUnique.mockResolvedValue({
+                cryptoSubAccountId: "sub-1",
+            });
             prisma.ledgerEntry.findMany.mockResolvedValue([
                 { id: "stale-1", sweepStatus: SweepStatus.PENDING },
             ]);

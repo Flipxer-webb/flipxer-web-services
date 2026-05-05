@@ -6,7 +6,7 @@ import * as t from "./types";
 import { Logger } from "@nestjs/common";
 
 export class QuidaxLib {
-    constructor(protected instanceOptions: t.QuidaxOptions) { }
+    constructor(protected instanceOptions: t.QuidaxOptions) {}
 
     // Quidax main API
     private readonly rawMainAxios: AxiosInstance = Axios.create({
@@ -80,7 +80,9 @@ export class QuidaxLib {
             axiosError.response?.statusText ||
             axiosError.message;
 
-        logger.error(`Quidax API Error - Status: ${status}, URL: ${axiosError.config?.url}`);
+        logger.error(
+            `Quidax API Error - Status: ${status}, URL: ${axiosError.config?.url}`,
+        );
         logger.error(`Quidax API Error - Response: ${JSON.stringify(data)}`);
         logger.error(`Quidax API Error - Message: ${axiosError.message}`);
 
@@ -118,7 +120,8 @@ export class QuidaxLib {
     private getMainRequestBudgetBucket(
         requestOptions: AxiosRequestConfig,
     ): t.QuidaxRequestBudgetBucket | null {
-        const url = typeof requestOptions.url === "string" ? requestOptions.url : "";
+        const url =
+            typeof requestOptions.url === "string" ? requestOptions.url : "";
         const method = String(requestOptions.method || "GET").toUpperCase();
 
         if (
@@ -153,7 +156,8 @@ export class QuidaxLib {
      * UUID v4 regex pattern for validating Quidax sub-account IDs.
      * Also allows the special value "me" used for the master account.
      */
-    private static readonly UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    private static readonly UUID_REGEX =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     /**
      * Validates that a user_id is either "me" or a valid UUID before making API calls.
@@ -164,10 +168,12 @@ export class QuidaxLib {
         if (!QuidaxLib.UUID_REGEX.test(userId)) {
             const logger = new Logger("QuidaxLib");
             const contextSuffix = context ? ` in ${context}` : "";
-            logger.error(`Invalid Quidax user_id detected: "${userId}"${contextSuffix}. Expected a UUID.`);
+            logger.error(
+                `Invalid Quidax user_id detected: "${userId}"${contextSuffix}. Expected a UUID.`,
+            );
             throw new e.QuidaxValidationError(
                 `Invalid sub-account ID: "${userId}". Expected a valid UUID.`,
-                "INVALID_SUB_ACCOUNT_ID"
+                "INVALID_SUB_ACCOUNT_ID",
             );
         }
     }
@@ -199,18 +205,19 @@ export class QuidaxLib {
      * @description create account for registered user or business
      */
     async createSubAccount(
-        options: t.CreateSubAccountOptions
+        options: t.CreateSubAccountOptions,
     ): Promise<t.QuidaxResponse<t.CreateSubAccountResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.CreateSubAccountOptions> =
-            {
-                url: `/users`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.CreateSubAccountResponse>
-            >(requestOptions);
+                {
+                    url: `/users`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.CreateSubAccountResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to create account");
@@ -237,9 +244,10 @@ export class QuidaxLib {
                 url: `/users`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<t.QuidaxResponse<t.IAccount[]>>(
-                requestOptions
-            );
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.IAccount[]>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get sub-accounts");
@@ -267,13 +275,17 @@ export class QuidaxLib {
             logger.log(`Finding sub-account by email: ${email}`);
             const result = await this.getAllSubAccounts();
             if (result.status === "success" && result.data) {
-                logger.log(`getAllSubAccounts returned ${result.data.length} accounts`);
+                logger.log(
+                    `getAllSubAccounts returned ${result.data.length} accounts`,
+                );
                 // Log all emails for debugging E0101 issues
-                const allEmails = result.data.map(acc => acc.email || '(no email)').join(', ');
+                const allEmails = result.data
+                    .map((acc) => acc.email || "(no email)")
+                    .join(", ");
                 logger.debug(`Available account emails: ${allEmails}`);
 
                 const account = result.data.find(
-                    (acc) => acc.email?.toLowerCase() === email.toLowerCase()
+                    (acc) => acc.email?.toLowerCase() === email.toLowerCase(),
                 );
                 if (account) {
                     logger.log(`Found matching account: ${account.id}`);
@@ -286,7 +298,9 @@ export class QuidaxLib {
             return null;
         } catch (error) {
             // Log but don't throw - return null to allow fallback to creation
-            logger.error(`Error finding sub-account by email: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(
+                `Error finding sub-account by email: ${error instanceof Error ? error.message : String(error)}`,
+            );
             return null;
         }
     }
@@ -298,7 +312,7 @@ export class QuidaxLib {
      * @description get account detail
      */
     async getAccountDetail(
-        options: t.GetAccountDetailOptions
+        options: t.GetAccountDetailOptions,
     ): Promise<t.QuidaxResponse<t.GetAccountDetailResponse>> {
         this.validateUserId(options.user_id, "getAccountDetail");
         try {
@@ -306,9 +320,10 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetAccountDetailResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetAccountDetailResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get account detail");
@@ -334,7 +349,7 @@ export class QuidaxLib {
      * @description Get all wallets linked to authenticated user account
      */
     async getUserWalletList(
-        options: t.GetUserWalletListOptions
+        options: t.GetUserWalletListOptions,
     ): Promise<t.QuidaxResponse<t.GetUserWalletListResponse>> {
         this.validateUserId(options.user_id, "getUserWalletList");
         try {
@@ -342,9 +357,10 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetUserWalletListResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetUserWalletListResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get wallet list");
@@ -368,19 +384,23 @@ export class QuidaxLib {
      * @description Get a single wallet linked to an authenticated user
      */
     async getUserWallet(
-        options: t.GetUserWalletOptions
+        options: t.GetUserWalletOptions,
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
         this.validateUserId(options.user_id, "getUserWallet");
         const safeUserId = this.encodePathSegment(options.user_id, "user_id");
-        const safeCurrency = this.encodePathSegment(options.currency, "currency");
+        const safeCurrency = this.encodePathSegment(
+            options.currency,
+            "currency",
+        );
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${safeUserId}/wallets/${safeCurrency}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetUserWalletResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.GetUserWalletResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get user wallet");
@@ -404,23 +424,27 @@ export class QuidaxLib {
      * @description Fetch default payment address for a wallet
      */
     async getPaymentAddress(
-        options: t.GetPaymentAddressOptions
+        options: t.GetPaymentAddressOptions,
     ): Promise<t.QuidaxResponse<t.GetUserWalletResponse>> {
         this.validateUserId(options.user_id, "getPaymentAddress");
         const safeUserId = this.encodePathSegment(options.user_id, "user_id");
-        const safeCurrency = this.encodePathSegment(options.currency, "currency");
+        const safeCurrency = this.encodePathSegment(
+            options.currency,
+            "currency",
+        );
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/users/${safeUserId}/wallets/${safeCurrency}/address`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetUserWalletResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.GetUserWalletResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get payment address"
+                    "Failed to get payment address",
                 );
                 error.status = 500;
                 throw error;
@@ -442,7 +466,7 @@ export class QuidaxLib {
      * @description Get the deposits addresses assigned to a wallet
      */
     async getPaymentAddressList(
-        options: t.GetPaymentAddressListOptions
+        options: t.GetPaymentAddressListOptions,
     ): Promise<t.QuidaxResponse<t.GetPaymentAddressListResponse>> {
         this.validateUserId(options.user_id, "getPaymentAddressList");
         try {
@@ -450,13 +474,14 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetPaymentAddressListResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetPaymentAddressListResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get payment address list"
+                    "Failed to get payment address list",
                 );
                 error.status = 500;
                 throw error;
@@ -478,7 +503,7 @@ export class QuidaxLib {
      * @description Get details of a payment address by address id
      */
     async getPaymentAddressById(
-        options: t.GetPaymentAddressByIdOptions
+        options: t.GetPaymentAddressByIdOptions,
     ): Promise<t.QuidaxResponse<t.GetPaymentAddressByIdResponse>> {
         this.validateUserId(options.user_id, "getPaymentAddressById");
         try {
@@ -486,13 +511,14 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/wallets/${options.currency}/addresses/${options.address_id}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetPaymentAddressByIdResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetPaymentAddressByIdResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get payment address"
+                    "Failed to get payment address",
                 );
                 error.status = 500;
                 throw error;
@@ -514,25 +540,29 @@ export class QuidaxLib {
      * @description Create a Payment Address for a wallet, once you call the API, a wallet address would be created, then you would need to the listen to wallet.address.generated webhook with the wallet id to get the wallet address that has been created.
      */
     async createPaymentAddress(
-        options: t.CreatePaymentAddressOptions
+        options: t.CreatePaymentAddressOptions,
     ): Promise<t.QuidaxResponse<t.CreatePaymentAddressResponse>> {
         this.validateUserId(options.user_id, "createPaymentAddress");
         const safeUserId = this.encodePathSegment(options.user_id, "user_id");
-        const safeCurrency = this.encodePathSegment(options.currency, "currency");
+        const safeCurrency = this.encodePathSegment(
+            options.currency,
+            "currency",
+        );
         try {
             const requestOptions: AxiosRequestConfig<t.CreatePaymentAddressOptions> =
-            {
-                url: `/users/${safeUserId}/wallets/${safeCurrency}/addresses`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.CreatePaymentAddressResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${safeUserId}/wallets/${safeCurrency}/addresses`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.CreatePaymentAddressResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to create payment address"
+                    "Failed to create payment address",
                 );
                 error.status = 500;
                 throw error;
@@ -554,19 +584,25 @@ export class QuidaxLib {
      * @description Verify address of a digital wallet
      */
     async verifyAddress(
-        options: t.VerifyAddressOptions
+        options: t.VerifyAddressOptions,
     ): Promise<t.QuidaxResponse<t.VerifyAddressResponse>> {
-        const safeCurrency = this.encodePathSegment(options.currency, "currency");
+        const safeCurrency = this.encodePathSegment(
+            options.currency,
+            "currency",
+        );
         const safeAddress = this.encodePathSegment(options.address, "address");
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/${safeCurrency}/${safeAddress}/validate_address`,
                 method: "GET",
-                params: options.network ? { network: options.network } : undefined,
+                params: options.network
+                    ? { network: options.network }
+                    : undefined,
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.VerifyAddressResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.VerifyAddressResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to verify address");
@@ -596,23 +632,24 @@ export class QuidaxLib {
      * @description initiates the withdrawal of an authenticated account
      */
     async createWithdrawalRequest(
-        options: t.CreateWithdrawerRequestOptions
+        options: t.CreateWithdrawerRequestOptions,
     ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
         this.validateUserId(options.user_id, "createWithdrawalRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CreateWithdrawerRequestOptions> =
-            {
-                url: `/users/${options.user_id}/withdraws`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.CreateWithdrawerRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${options.user_id}/withdraws`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.CreateWithdrawerRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to initiate withdrawal"
+                    "Failed to initiate withdrawal",
                 );
                 error.status = 500;
                 throw error;
@@ -631,7 +668,7 @@ export class QuidaxLib {
      * @deprecated Use createWithdrawalRequest instead.
      */
     async createWithdrawerRequest(
-        options: t.CreateWithdrawerRequestOptions
+        options: t.CreateWithdrawerRequestOptions,
     ): Promise<t.QuidaxResponse<t.CreateWithdrawerRequestResponse>> {
         return this.createWithdrawalRequest(options);
     }
@@ -643,19 +680,20 @@ export class QuidaxLib {
      * @description cancel initiated withdrawal
      */
     async cancelWithdrawalRequest(
-        options: t.CancelWithdrawerRequestOptions
+        options: t.CancelWithdrawerRequestOptions,
     ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
         this.validateUserId(options.user_id, "cancelWithdrawalRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CancelWithdrawerRequestOptions> =
-            {
-                url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}/cancel`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.CancelWithdrawerRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}/cancel`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.CancelWithdrawerRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to cancel withdrawal");
@@ -676,7 +714,7 @@ export class QuidaxLib {
      * @deprecated Use cancelWithdrawalRequest instead.
      */
     async cancelWithdrawerRequest(
-        options: t.CancelWithdrawerRequestOptions
+        options: t.CancelWithdrawerRequestOptions,
     ): Promise<t.QuidaxResponse<t.CancelWithdrawerRequestResponse>> {
         return this.cancelWithdrawalRequest(options);
     }
@@ -689,23 +727,24 @@ export class QuidaxLib {
      */
     async getWithdrawalList(
         user_id: string,
-        options: t.WithdrawalListOptions
+        options: t.WithdrawalListOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
         this.validateUserId(user_id, "getWithdrawalList");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
-            {
-                url: `/users/${user_id}/withdraws`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawalListResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${user_id}/withdraws`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.WithdrawalListResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get withdrawal list"
+                    "Failed to get withdrawal list",
                 );
                 error.status = 500;
                 throw error;
@@ -725,7 +764,7 @@ export class QuidaxLib {
      */
     async getWithdrawerList(
         user_id: string,
-        options: t.WithdrawalListOptions
+        options: t.WithdrawalListOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawalListResponse>> {
         return this.getWithdrawalList(user_id, options);
     }
@@ -737,22 +776,23 @@ export class QuidaxLib {
      * @description fetch a withdrawal object, related to the user
      */
     async getWithdrawalDetail(
-        options: t.WithdrawalDetailOptions
+        options: t.WithdrawalDetailOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
         this.validateUserId(options.user_id, "getWithdrawalDetail");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawalListOptions> =
-            {
-                url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
-                method: "GET",
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawerDetailResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${options.user_id}/withdraws/${options.withdrawal_id}`,
+                    method: "GET",
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.WithdrawerDetailResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get withdrawal detail"
+                    "Failed to get withdrawal detail",
                 );
                 error.status = 500;
                 throw error;
@@ -771,7 +811,7 @@ export class QuidaxLib {
      * @deprecated Use getWithdrawalDetail instead.
      */
     async getWithdrawerDetail(
-        options: t.WithdrawerDetailOptions
+        options: t.WithdrawerDetailOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawerDetailResponse>> {
         return this.getWithdrawalDetail(options);
     }
@@ -783,18 +823,19 @@ export class QuidaxLib {
      * @description fetch a withdrawal object, related to the user by withdrawer reference
      */
     async getWithdrawalByReference(
-        options: t.WithdrawerRecordByReferenceOptions
+        options: t.WithdrawerRecordByReferenceOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
         this.validateUserId(options.user_id, "getWithdrawalByReference");
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerRecordByReferenceOptions> =
-            {
-                url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
-                method: "GET",
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${options.user_id}/withdraws/reference/${options.reference}`,
+                    method: "GET",
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get withdrawal");
@@ -812,7 +853,7 @@ export class QuidaxLib {
     }
 
     async getWithdrawerByReference(
-        options: t.WithdrawerRecordByReferenceOptions
+        options: t.WithdrawerRecordByReferenceOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawerRecordByReferenceResponse>> {
         return this.getWithdrawalByReference(options);
     }
@@ -825,18 +866,19 @@ export class QuidaxLib {
      * @description withdrawal fee for a specific currency.
      */
     async getWithdrawerFees(
-        options: t.WithdrawerFeesOptions
+        options: t.WithdrawerFeesOptions,
     ): Promise<t.QuidaxResponse<t.WithdrawerFeesResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.WithdrawerFeesOptions> =
-            {
-                url: `/fee`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.WithdrawerFeesResponse>
-            >(requestOptions);
+                {
+                    url: `/fee`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.WithdrawerFeesResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get withdrawer");
@@ -863,19 +905,20 @@ export class QuidaxLib {
      */
     async buyOrSellOrderRequest(
         user_id: string,
-        options: t.SellOrBuyOrderRequestOptions
+        options: t.SellOrBuyOrderRequestOptions,
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
         this.validateUserId(user_id, "buyOrSellOrderRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.SellOrBuyOrderRequestOptions> =
-            {
-                url: `/users/${user_id}/orders`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${user_id}/orders`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to place order");
@@ -900,18 +943,19 @@ export class QuidaxLib {
      */
     async cancelBuyOrSellOrderRequest(
         user_id: string,
-        options: t.CancelSellOrBuyOrderRequestOptions
+        options: t.CancelSellOrBuyOrderRequestOptions,
     ): Promise<t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>> {
         this.validateUserId(user_id, "cancelBuyOrSellOrderRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CancelSellOrBuyOrderRequestOptions> =
-            {
-                url: `/users/${user_id}/orders/${options.order_id}/cancel`,
-                method: "POST",
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${user_id}/orders/${options.order_id}/cancel`,
+                    method: "POST",
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.SellOrBuyOrderRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to cancel order");
@@ -936,7 +980,7 @@ export class QuidaxLib {
      */
     async getAllOrders(
         user_id: string,
-        options: t.GetOrderListOptions
+        options: t.GetOrderListOptions,
     ): Promise<t.QuidaxResponse<t.GetOrderListResponse>> {
         this.validateUserId(user_id, "getAllOrders");
         try {
@@ -945,9 +989,10 @@ export class QuidaxLib {
                 method: "GET",
                 params: options,
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetOrderListResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.GetOrderListResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get order list");
@@ -971,18 +1016,19 @@ export class QuidaxLib {
      * @description Fetch order tethered to the authenticated user
      */
     async getOrderRecord(
-        options: t.GetOrderRecordOptions
+        options: t.GetOrderRecordOptions,
     ): Promise<t.QuidaxResponse<t.GetOrderRecordResponse>> {
         this.validateUserId(options.user_id, "getOrderRecord");
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderRecordOptions> =
-            {
-                url: `/users/${options.user_id}/orders/${options.order_id}`,
-                method: "GET",
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetOrderRecordResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${options.user_id}/orders/${options.order_id}`,
+                    method: "GET",
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetOrderRecordResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get order");
@@ -1008,7 +1054,7 @@ export class QuidaxLib {
      * @description Get order detail
      */
     async instantOrdersRequery(
-        options: t.InstantOrdersRequeryOptions
+        options: t.InstantOrdersRequeryOptions,
     ): Promise<t.QuidaxResponse<t.InstantOrderResponse>> {
         this.validateUserId(options.user_id, "instantOrdersRequery");
         try {
@@ -1016,9 +1062,10 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/instant_orders/${options.instant_order_id}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.InstantOrderResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.InstantOrderResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get order");
@@ -1049,19 +1096,20 @@ export class QuidaxLib {
      */
     async createInstantSwapRequest(
         user_id: string,
-        options: t.CreateInstantSwapRequestOptions
+        options: t.CreateInstantSwapRequestOptions,
     ): Promise<t.QuidaxResponse<t.CreateInstantSwapRequestResponse>> {
         this.validateUserId(user_id, "createInstantSwapRequest");
         try {
             const requestOptions: AxiosRequestConfig<t.CreateInstantSwapRequestOptions> =
-            {
-                url: `/users/${user_id}/swap_quotation`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.CreateInstantSwapRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${user_id}/swap_quotation`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.CreateInstantSwapRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to create swap quote");
@@ -1085,23 +1133,27 @@ export class QuidaxLib {
      * @description used to confirm an instant swap quotation.
      */
     async confirmInstantSwap(
-        options: t.ConfirmInstantSwapOptions
+        options: t.ConfirmInstantSwapOptions,
     ): Promise<t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>> {
         this.validateUserId(options.user_id, "confirmInstantSwap");
         try {
-            const safeUserId = this.encodePathSegment(options.user_id, "user_id");
+            const safeUserId = this.encodePathSegment(
+                options.user_id,
+                "user_id",
+            );
             const safeQuotationId = this.encodePathSegment(
                 options.quotation_id,
-                "quotation_id"
+                "quotation_id",
             );
             const requestOptions: AxiosRequestConfig<t.ConfirmInstantSwapOptions> =
-            {
-                url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/confirm`,
-                method: "POST",
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/confirm`,
+                    method: "POST",
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.ConfirmInstantSwapRequestResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to confirm quote");
@@ -1129,24 +1181,25 @@ export class QuidaxLib {
     async refreshInstantSwapQuote(
         user_id: string,
         quotation_id: string,
-        options: t.RefreshInstantSwapOptions
+        options: t.RefreshInstantSwapOptions,
     ): Promise<t.QuidaxResponse<t.RefreshInstantSwapResponse>> {
         this.validateUserId(user_id, "refreshInstantSwapQuote");
         try {
             const safeUserId = this.encodePathSegment(user_id, "user_id");
             const safeQuotationId = this.encodePathSegment(
                 quotation_id,
-                "quotation_id"
+                "quotation_id",
             );
             const requestOptions: AxiosRequestConfig<t.RefreshInstantSwapOptions> =
-            {
-                url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/refresh`,
-                method: "POST",
-                data: options,
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.RefreshInstantSwapResponse>
-            >(requestOptions);
+                {
+                    url: `/users/${safeUserId}/swap_quotation/${safeQuotationId}/refresh`,
+                    method: "POST",
+                    data: options,
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.RefreshInstantSwapResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to refresh quote");
@@ -1170,7 +1223,7 @@ export class QuidaxLib {
      * @description Fetch an instant swap transaction.
      */
     async getSwapTransaction(
-        options: t.GetSwapTransactionOptions
+        options: t.GetSwapTransactionOptions,
     ): Promise<t.QuidaxResponse<t.GetSwapTransactionResponse>> {
         this.validateUserId(options.user_id, "getSwapTransaction");
         try {
@@ -1178,13 +1231,14 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/swap_transactions/${options.swap_transaction_id}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetSwapTransactionResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetSwapTransactionResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get swap transaction"
+                    "Failed to get swap transaction",
                 );
                 error.status = 500;
                 throw error;
@@ -1206,7 +1260,7 @@ export class QuidaxLib {
      * @description Get user swap transactions for an authenticated use.
      */
     async getSwapTransactionList(
-        user_id: string
+        user_id: string,
     ): Promise<t.QuidaxResponse<t.GetSwapTransactionListResponse>> {
         this.validateUserId(user_id, "getSwapTransactionList");
         try {
@@ -1214,13 +1268,14 @@ export class QuidaxLib {
                 url: `/users/${user_id}/swap_transactions`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetSwapTransactionListResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetSwapTransactionListResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get swap transaction list"
+                    "Failed to get swap transaction list",
                 );
                 error.status = 500;
                 throw error;
@@ -1244,7 +1299,7 @@ export class QuidaxLib {
      * @description Fetch all deposits for a user's wallet
      */
     async fetchDeposits(
-        options: t.FetchDepositsOptions
+        options: t.FetchDepositsOptions,
     ): Promise<t.QuidaxResponse<t.FetchDepositsResponse>> {
         this.validateUserId(options.user_id, "fetchDeposits");
         try {
@@ -1260,9 +1315,10 @@ export class QuidaxLib {
                 method: "GET",
                 params,
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.FetchDepositsResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.FetchDepositsResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to fetch deposits");
@@ -1286,7 +1342,7 @@ export class QuidaxLib {
      * @description Fetch a single deposit detail by id
      */
     async fetchDeposit(
-        options: t.FetchDepositOptions
+        options: t.FetchDepositOptions,
     ): Promise<t.QuidaxResponse<t.FetchDepositResponse>> {
         this.validateUserId(options.user_id, "fetchDeposit");
         try {
@@ -1295,9 +1351,10 @@ export class QuidaxLib {
                 url: `/users/${options.user_id}/deposits/${options.deposit_id}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.FetchDepositResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.FetchDepositResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to fetch deposit");
@@ -1333,9 +1390,10 @@ export class QuidaxLib {
                 url: `/markets`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetMarketListResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<t.QuidaxResponse<t.GetMarketListResponse>>(
+                    requestOptions,
+                );
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get market list");
@@ -1367,9 +1425,10 @@ export class QuidaxLib {
                 url: `/markets/tickers`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetMarketTickersResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetMarketTickersResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get market tickers");
@@ -1393,16 +1452,17 @@ export class QuidaxLib {
      * @description Returns the market ticker for a specific market.
      */
     async getSingleMarketTicker(
-        currency: string
+        currency: string,
     ): Promise<t.QuidaxResponse<t.GetMarketTickerResponse>> {
         try {
             const requestOptions: AxiosRequestConfig = {
                 url: `/markets/tickers/${currency}`,
                 method: "GET",
             };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetMarketTickerResponse>
-            >(requestOptions);
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetMarketTickerResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get market ticker");
@@ -1426,21 +1486,22 @@ export class QuidaxLib {
      * @description Gets the volume of trades that are currently being processed by the order book.
      */
     async getOrderBookItemsForAMarket(
-        options: t.GetOrderBookItemsForAMarketOptions
+        options: t.GetOrderBookItemsForAMarketOptions,
     ): Promise<t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>> {
         try {
             const requestOptions: AxiosRequestConfig<t.GetOrderBookItemsForAMarketOptions> =
-            {
-                url: `/markets/${options.currency}/order_book`,
-                method: "GET",
-                params: {
-                    ask_limit: options.ask_limit,
-                    bids_limit: options.bids_limit,
-                },
-            };
-            const resp = await this.mainAxios<
-                t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>
-            >(requestOptions);
+                {
+                    url: `/markets/${options.currency}/order_book`,
+                    method: "GET",
+                    params: {
+                        ask_limit: options.ask_limit,
+                        bids_limit: options.bids_limit,
+                    },
+                };
+            const resp =
+                await this.mainAxios<
+                    t.QuidaxResponse<t.GetOrderBookItemsForAMarketResponse>
+                >(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get order book");
@@ -1466,22 +1527,21 @@ export class QuidaxLib {
      * @description get payment methods list
      */
     async getPaymentMethods(
-        options: t.PaymentMethodsOptions
+        options: t.PaymentMethodsOptions,
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PaymentMethodsOptions> =
-            {
-                url: `/payment_methods`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
-                requestOptions
-            );
+                {
+                    url: `/payment_methods`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.rampAxios<t.QuidaxResponse<any>>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError(
-                    "Failed to get payment methods"
+                    "Failed to get payment methods",
                 );
                 error.status = 500;
                 throw error;
@@ -1503,18 +1563,17 @@ export class QuidaxLib {
      * @description Retrieves the minimum and maximum allowed purchase amounts for fiat currency transactions.
      */
     async getPurchaseLimitForBuy(
-        options: t.PurchaseLimitBuyOptions
+        options: t.PurchaseLimitBuyOptions,
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseLimitBuyOptions> =
-            {
-                url: `/purchase_limits/buy`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
-                requestOptions
-            );
+                {
+                    url: `/purchase_limits/buy`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.rampAxios<t.QuidaxResponse<any>>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get purchase limit");
@@ -1538,18 +1597,17 @@ export class QuidaxLib {
      * @description Retrieves the minimum and maximum allowed sell amounts for cryptocurrency transactions.
      */
     async getPurchaseLimitForSell(
-        options: t.PurchaseLimitSellOptions
+        options: t.PurchaseLimitSellOptions,
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseLimitSellOptions> =
-            {
-                url: `/purchase_limits/sell`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
-                requestOptions
-            );
+                {
+                    url: `/purchase_limits/sell`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.rampAxios<t.QuidaxResponse<any>>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get purchase limit");
@@ -1573,18 +1631,17 @@ export class QuidaxLib {
      * @description Retrieves real-time exchange quotes between a fiat currency and a cryptocurrency, including estimated fiat processing fees.
      */
     async getPurchaseQuoteForBuy(
-        options: t.PurchaseQuoteBuyOptions
+        options: t.PurchaseQuoteBuyOptions,
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseQuoteBuyOptions> =
-            {
-                url: `/purchase_quotes/buy`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
-                requestOptions
-            );
+                {
+                    url: `/purchase_quotes/buy`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.rampAxios<t.QuidaxResponse<any>>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get purchase quote");
@@ -1608,18 +1665,17 @@ export class QuidaxLib {
      * @description Retrieves real-time exchange quotes between a fiat currency and a cryptocurrency, including estimated blockchain processing fees.
      */
     async getPurchaseQuoteForSell(
-        options: t.PurchaseQuoteSellOptions
+        options: t.PurchaseQuoteSellOptions,
     ): Promise<t.QuidaxResponse<any>> {
         try {
             const requestOptions: AxiosRequestConfig<t.PurchaseQuoteSellOptions> =
-            {
-                url: `/purchase_quotes/sell`,
-                method: "GET",
-                params: options,
-            };
-            const resp = await this.rampAxios<t.QuidaxResponse<any>>(
-                requestOptions
-            );
+                {
+                    url: `/purchase_quotes/sell`,
+                    method: "GET",
+                    params: options,
+                };
+            const resp =
+                await this.rampAxios<t.QuidaxResponse<any>>(requestOptions);
 
             if (!resp.data) {
                 const error = new e.QuidaxError("Failed to get purchase quote");

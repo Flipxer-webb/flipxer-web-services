@@ -13,15 +13,16 @@ export class QuidaxCacheService {
     private readonly API_TIMEOUT_MS = 5000; // 5 second timeout for Quidax API
     private readonly THROTTLE_COOLDOWN_MS = 30_000;
     private readonly logger = new Logger(QuidaxCacheService.name);
-    private inFlightMarketTickersRequest: Promise<Record<string, any>> | null = null;
+    private inFlightMarketTickersRequest: Promise<Record<string, any>> | null =
+        null;
     private marketTickersThrottleUntil = 0;
     private lastSuccessfulMarketTickers: Record<string, any> | null = null;
 
     constructor(
         private readonly redisCacheService: RedisCacheService,
         @Inject(TradingInjectionToken.QUIDAX)
-        private readonly quidaxService: QuidaxService
-    ) { }
+        private readonly quidaxService: QuidaxService,
+    ) {}
 
     async getMarketTickers(): Promise<Record<string, any>> {
         const startTime = Date.now();
@@ -29,11 +30,14 @@ export class QuidaxCacheService {
         // Try fresh cache first
         const cached = await this.redisCacheService.get(this.CACHE_KEY);
         if (cached) {
-            this.logger.debug(`[PERF] Quidax cache HIT in ${Date.now() - startTime}ms`);
+            this.logger.debug(
+                `[PERF] Quidax cache HIT in ${Date.now() - startTime}ms`,
+            );
             return cached;
         }
 
-        const remainingThrottleMs = this.marketTickersThrottleUntil - Date.now();
+        const remainingThrottleMs =
+            this.marketTickersThrottleUntil - Date.now();
         if (remainingThrottleMs > 0) {
             return this.getStaleMarketTickers(
                 `[PERF] Quidax market ticker cooldown active for ${remainingThrottleMs}ms`,
@@ -41,7 +45,9 @@ export class QuidaxCacheService {
         }
 
         if (this.inFlightMarketTickersRequest !== null) {
-            this.logger.debug(`[PERF] Quidax cache MISS, awaiting in-flight API request`);
+            this.logger.debug(
+                `[PERF] Quidax cache MISS, awaiting in-flight API request`,
+            );
             return this.inFlightMarketTickersRequest;
         }
 
@@ -52,33 +58,49 @@ export class QuidaxCacheService {
                 // Fetch with timeout to prevent slow API from blocking
                 const response = await this.fetchWithTimeout(
                     () => this.quidaxService.getMarketTickers(),
-                    this.API_TIMEOUT_MS
+                    this.API_TIMEOUT_MS,
                 );
 
                 const data = response.data ?? {};
 
                 // Save to both fresh and stale caches
                 await Promise.all([
-                    this.redisCacheService.set(this.CACHE_KEY, data, this.CACHE_TTL),
-                    this.redisCacheService.set(this.STALE_CACHE_KEY, data, this.STALE_TTL),
+                    this.redisCacheService.set(
+                        this.CACHE_KEY,
+                        data,
+                        this.CACHE_TTL,
+                    ),
+                    this.redisCacheService.set(
+                        this.STALE_CACHE_KEY,
+                        data,
+                        this.STALE_TTL,
+                    ),
                 ]);
 
                 this.lastSuccessfulMarketTickers = data;
                 this.marketTickersThrottleUntil = 0;
-                this.logger.log(`[PERF] Quidax API fetch: ${Date.now() - startTime}ms`);
+                this.logger.log(
+                    `[PERF] Quidax API fetch: ${Date.now() - startTime}ms`,
+                );
                 return data;
             } catch (err) {
-                const errorMessage = err instanceof Error ? err.message : String(err);
-                this.logger.error(`[PERF] Quidax API error after ${Date.now() - startTime}ms: ${errorMessage}`);
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
+                this.logger.error(
+                    `[PERF] Quidax API error after ${Date.now() - startTime}ms: ${errorMessage}`,
+                );
 
                 if (isQuidaxThrottleError(err)) {
-                    this.marketTickersThrottleUntil = Date.now() + this.THROTTLE_COOLDOWN_MS;
+                    this.marketTickersThrottleUntil =
+                        Date.now() + this.THROTTLE_COOLDOWN_MS;
                     this.logger.warn(
                         `[PERF] Entering Quidax market ticker cooldown for ${this.THROTTLE_COOLDOWN_MS}ms after throttling response`,
                     );
                 }
 
-                return this.getStaleMarketTickers(`[PERF] Using stale Quidax cache as fallback`);
+                return this.getStaleMarketTickers(
+                    `[PERF] Using stale Quidax cache as fallback`,
+                );
             } finally {
                 this.inFlightMarketTickersRequest = null;
             }
@@ -93,18 +115,30 @@ export class QuidaxCacheService {
      */
     private async fetchWithTimeout<T>(
         fetcher: () => Promise<T>,
-        timeoutMs: number
+        timeoutMs: number,
     ): Promise<T> {
         return Promise.race([
             fetcher(),
             new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Quidax API timeout after ${timeoutMs}ms`)), timeoutMs)
+                setTimeout(
+                    () =>
+                        reject(
+                            new Error(
+                                `Quidax API timeout after ${timeoutMs}ms`,
+                            ),
+                        ),
+                    timeoutMs,
+                ),
             ),
         ]);
     }
 
-    private async getStaleMarketTickers(logMessage: string): Promise<Record<string, any>> {
-        const staleData = await this.redisCacheService.get(this.STALE_CACHE_KEY);
+    private async getStaleMarketTickers(
+        logMessage: string,
+    ): Promise<Record<string, any>> {
+        const staleData = await this.redisCacheService.get(
+            this.STALE_CACHE_KEY,
+        );
 
         if (staleData) {
             this.lastSuccessfulMarketTickers = staleData;
@@ -113,7 +147,9 @@ export class QuidaxCacheService {
         }
 
         if (this.lastSuccessfulMarketTickers) {
-            this.logger.warn(`${logMessage}; using last successful in-memory fallback`);
+            this.logger.warn(
+                `${logMessage}; using last successful in-memory fallback`,
+            );
             return this.lastSuccessfulMarketTickers;
         }
 

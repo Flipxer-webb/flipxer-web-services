@@ -11,63 +11,63 @@ export class QuidaxWithdrawalService {
     constructor(private readonly quidax: QD.QuidaxLib) {}
 
     async createWithdrawerRequest(
-        options: t.CreateWithdrawerRequestOptions
+        options: t.CreateWithdrawerRequestOptions,
     ): Promise<QD.QuidaxResponse<QD.CreateWithdrawerRequestResponse>> {
         return executeQuidaxCall(
             () => this.quidax.createWithdrawalRequest(options),
             "create withdrawer",
-            this.logger
+            this.logger,
         );
     }
 
     async cancelWithdrawerRequest(
-        options: t.CancelWithdrawerRequestOptions
+        options: t.CancelWithdrawerRequestOptions,
     ): Promise<QD.QuidaxResponse<QD.CancelWithdrawerRequestResponse>> {
         return executeQuidaxCall(
             () => this.quidax.cancelWithdrawalRequest(options),
             "cancel withdrawer",
-            this.logger
+            this.logger,
         );
     }
 
     async getWithdrawerList(
         user_id: string,
-        options: t.WithdrawalListOptions
+        options: t.WithdrawalListOptions,
     ): Promise<QD.QuidaxResponse<QD.WithdrawalListResponse>> {
         return executeQuidaxCall(
             () => this.quidax.getWithdrawalList(user_id, options),
             "get withdrawer list",
-            this.logger
+            this.logger,
         );
     }
 
     async getWithdrawerDetail(
-        options: t.WithdrawerDetailOptions
+        options: t.WithdrawerDetailOptions,
     ): Promise<QD.QuidaxResponse<QD.WithdrawerDetailResponse>> {
         return executeQuidaxCall(
             () => this.quidax.getWithdrawalDetail(options),
             "get withdrawer detail",
-            this.logger
+            this.logger,
         );
     }
 
     async getWithdrawerByReference(
-        options: t.WithdrawerRecordByReferenceOptions
+        options: t.WithdrawerRecordByReferenceOptions,
     ): Promise<QD.QuidaxResponse<QD.WithdrawerRecordByReferenceResponse>> {
         return executeQuidaxCall(
             () => this.quidax.getWithdrawerByReference(options),
             "get withdrawer",
-            this.logger
+            this.logger,
         );
     }
 
     async getWithdrawerFees(
-        options: t.WithdrawerFeesOptions
+        options: t.WithdrawerFeesOptions,
     ): Promise<QD.QuidaxResponse<QD.WithdrawerFeesResponse>> {
         return executeQuidaxCall(
             () => this.quidax.getWithdrawerFees(options),
             "get withdrawer fee",
-            this.logger
+            this.logger,
         );
     }
 }

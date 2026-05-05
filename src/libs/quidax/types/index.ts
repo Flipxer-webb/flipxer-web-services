@@ -410,7 +410,7 @@ export interface PurchaseQuoteSellOptions {
 }
 
 export interface QuidaxResponse<
-    D extends Record<string, any> = Record<string, any>
+    D extends Record<string, any> = Record<string, any>,
 > {
     status: string;
     message: string;
@@ -418,7 +418,16 @@ export interface QuidaxResponse<
 }
 
 // Deposit Types
-export type DepositState = "processing" | "done" | "submitted" | "rejected" | "aml_deposit_hold" | "confirming" | "pending" | "successful" | "completed";
+export type DepositState =
+    | "processing"
+    | "done"
+    | "submitted"
+    | "rejected"
+    | "aml_deposit_hold"
+    | "confirming"
+    | "pending"
+    | "successful"
+    | "completed";
 
 export interface IQuidaxDeposit {
     id: string;

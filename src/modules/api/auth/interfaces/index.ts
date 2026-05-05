@@ -1,12 +1,11 @@
-import { 
+import {
     User,
     Status,
     UserType,
-    DocumentVerificationStatus
+    DocumentVerificationStatus,
 } from "@prisma/client";
 import { Request } from "express";
 import { UserSigInDto } from "../dtos";
-
 
 export interface DataStoredInToken {
     sub: number;
@@ -48,11 +47,11 @@ export interface DocumentVerificationFileInterface {
 }
 
 export interface VerificationStatus {
-    isEmailVerified: boolean;
-    isPhoneVerified: boolean;
-    isPasswordCreated: boolean;
-    isBvnVerified: boolean;
-    isDocumentVerified: boolean;
+    emailVerified: boolean;
+    phoneVerified: boolean;
+    passwordCreated: boolean;
+    governmentIdVerified: boolean;
+    documentVerified: boolean;
     businessRecordCompleted?: boolean;
     businessDocumentVerificationStatus?: string | null;
 }
@@ -73,10 +72,17 @@ export interface SignInUser {
     isEmailVerified: boolean;
     isPhoneVerified: boolean;
     isPasswordCreated: boolean;
-    isBvnVerified: boolean;
+    bvn?: string | null;
+    nin?: string | null;
     isDocumentVerified: boolean;
     businessRecordCompleted: boolean;
     businessDocumentVerificationStatus: DocumentVerificationStatus | null;
+    kycStageAttempts?: Array<{
+        stage: string;
+        method: string | null;
+        status: string;
+        isCurrent: boolean;
+    }>;
 }
 
 export const DocumentMetaMap = {
@@ -89,36 +95,35 @@ export const DocumentMetaMap = {
         "Means Of Identification For Beneficial Owner",
 } as const;
 
-
 export enum SupportedAssets {
-    BTC = 'BTC',
-    ETH = 'ETH',
-    USDT = 'USDT',
-    USDC = 'USDC',
-    BNB = 'BNB',
-    SOL = 'SOL',
-    XRP = 'XRP',
-    ADA = 'ADA',
-    DOT = 'DOT',
-    DOGE = 'DOGE',
-    SHIB = 'SHIB',
-    MATIC = 'MATIC',
-    LINK = 'LINK',
-    LTC = 'LTC',
-    BCH = 'BCH',
-    XLM = 'XLM',
-    ALGO = 'ALGO',
-    AAVE = 'AAVE',
-    FIL = 'FIL',
-    CAKE = 'CAKE',
-    MANA = 'MANA',
-    SAND = 'SAND',
-    FTM = 'FTM',
-    XTZ = 'XTZ',
-    APE = 'APE',
-    ENS = 'ENS',
-    ARB = 'ARB',
-    OP = 'OP',
-    ICP = 'ICP',
-    SUI = 'SUI'
+    BTC = "BTC",
+    ETH = "ETH",
+    USDT = "USDT",
+    USDC = "USDC",
+    BNB = "BNB",
+    SOL = "SOL",
+    XRP = "XRP",
+    ADA = "ADA",
+    DOT = "DOT",
+    DOGE = "DOGE",
+    SHIB = "SHIB",
+    MATIC = "MATIC",
+    LINK = "LINK",
+    LTC = "LTC",
+    BCH = "BCH",
+    XLM = "XLM",
+    ALGO = "ALGO",
+    AAVE = "AAVE",
+    FIL = "FIL",
+    CAKE = "CAKE",
+    MANA = "MANA",
+    SAND = "SAND",
+    FTM = "FTM",
+    XTZ = "XTZ",
+    APE = "APE",
+    ENS = "ENS",
+    ARB = "ARB",
+    OP = "OP",
+    ICP = "ICP",
+    SUI = "SUI",
 }

@@ -40,7 +40,7 @@ export async function withQuidaxThrottleGuard<T>(
     queue: Queue,
     logger: Logger,
     handler: () => Promise<T>,
-    pauseMs: number = DEFAULT_THROTTLE_PAUSE_MS
+    pauseMs: number = DEFAULT_THROTTLE_PAUSE_MS,
 ): Promise<T> {
     try {
         const result = await handler();
@@ -57,11 +57,14 @@ export async function withQuidaxThrottleGuard<T>(
 async function pauseQueueForCooldown(
     queue: Queue,
     logger: Logger,
-    pauseMs: number
+    pauseMs: number,
 ): Promise<void> {
     const state = getQueueThrottleState(queue.name);
     state.consecutiveThrottleCount += 1;
-    const throttlePauseMs = getThrottlePauseMs(state.consecutiveThrottleCount, pauseMs);
+    const throttlePauseMs = getThrottlePauseMs(
+        state.consecutiveThrottleCount,
+        pauseMs,
+    );
     const desiredResumeAt = Date.now() + throttlePauseMs;
 
     try {
@@ -70,7 +73,7 @@ async function pauseQueueForCooldown(
 
         if (alreadyPaused) {
             logger.warn(
-                `[QUIDAX THROTTLE] Extending queue "${queue.name}" cooldown to ${Math.max(0, state.pausedUntil - Date.now())}ms after ${state.consecutiveThrottleCount} consecutive Quidax throttling response(s)`
+                `[QUIDAX THROTTLE] Extending queue "${queue.name}" cooldown to ${Math.max(0, state.pausedUntil - Date.now())}ms after ${state.consecutiveThrottleCount} consecutive Quidax throttling response(s)`,
             );
             scheduleQueueResume(queue, logger, state);
             return;
@@ -78,7 +81,7 @@ async function pauseQueueForCooldown(
 
         await queue.pause(/* isLocal */ true);
         logger.warn(
-            `[QUIDAX THROTTLE] Pausing queue "${queue.name}" for ${throttlePauseMs}ms after ${state.consecutiveThrottleCount} consecutive Quidax throttling response(s)`
+            `[QUIDAX THROTTLE] Pausing queue "${queue.name}" for ${throttlePauseMs}ms after ${state.consecutiveThrottleCount} consecutive Quidax throttling response(s)`,
         );
 
         scheduleQueueResume(queue, logger, state);
@@ -86,7 +89,7 @@ async function pauseQueueForCooldown(
         // Pausing is best-effort — never let a guard failure mask the
         // original Quidax error.
         logger.error(
-            `[QUIDAX THROTTLE] Failed to pause queue "${queue.name}": ${pauseError?.message}`
+            `[QUIDAX THROTTLE] Failed to pause queue "${queue.name}": ${pauseError?.message}`,
         );
     }
 }
@@ -122,7 +125,10 @@ function resetQueueThrottleState(queueName: string): void {
     }
 }
 
-function getThrottlePauseMs(consecutiveThrottleCount: number, basePauseMs: number): number {
+function getThrottlePauseMs(
+    consecutiveThrottleCount: number,
+    basePauseMs: number,
+): number {
     const backoffMultiplier = Math.max(0, consecutiveThrottleCount - 1);
 
     return Math.min(
@@ -152,11 +158,11 @@ function scheduleQueueResume(
         try {
             await queue.resume(/* isLocal */ true);
             logger.log(
-                `[QUIDAX THROTTLE] Resumed queue "${queue.name}" after cooldown`
+                `[QUIDAX THROTTLE] Resumed queue "${queue.name}" after cooldown`,
             );
         } catch (resumeError) {
             logger.error(
-                `[QUIDAX THROTTLE] Failed to resume queue "${queue.name}": ${resumeError?.message}`
+                `[QUIDAX THROTTLE] Failed to resume queue "${queue.name}": ${resumeError?.message}`,
             );
         } finally {
             state.pausedUntil = 0;

@@ -43,9 +43,15 @@ describe("QuidaxDepositSyncProcessor", () => {
             tradingService as never,
             depositSyncQueue as never,
         );
-        jest.spyOn((processor as any).logger, "log").mockImplementation(() => undefined);
-        jest.spyOn((processor as any).logger, "warn").mockImplementation(() => undefined);
-        jest.spyOn((processor as any).logger, "error").mockImplementation(() => undefined);
+        jest.spyOn((processor as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((processor as any).logger, "warn").mockImplementation(
+            () => undefined,
+        );
+        jest.spyOn((processor as any).logger, "error").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -66,7 +72,9 @@ describe("QuidaxDepositSyncProcessor", () => {
 
     it("logs a summary line when at least one deposit was synced", async () => {
         const logSpy = (processor as any).logger.log as jest.Mock;
-        tradingService.syncUserDeposits.mockResolvedValue({ data: { synced: 3 } });
+        tradingService.syncUserDeposits.mockResolvedValue({
+            data: { synced: 3 },
+        });
 
         await processor.handleSyncDeposits({ data: { user_id: 7 } } as never);
 
@@ -77,7 +85,9 @@ describe("QuidaxDepositSyncProcessor", () => {
 
     it("does not log a summary when no deposits were synced", async () => {
         const logSpy = (processor as any).logger.log as jest.Mock;
-        tradingService.syncUserDeposits.mockResolvedValue({ data: { synced: 0 } });
+        tradingService.syncUserDeposits.mockResolvedValue({
+            data: { synced: 0 },
+        });
 
         await processor.handleSyncDeposits({ data: { user_id: 9 } } as never);
 

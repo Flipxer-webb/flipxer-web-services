@@ -14,7 +14,7 @@ import {
     IsBoolean,
 } from "class-validator";
 import { SupportedAssets } from "../interfaces/trade";
-import { NetworkTypes, PaymentMethod} from "@prisma/client";
+import { NetworkTypes, PaymentMethod } from "@prisma/client";
 import { Transform, Type } from "class-transformer";
 import {
     SUPPORTED_TRADE_ASSET_LOWERCASE_SYMBOLS,
@@ -72,7 +72,10 @@ export class InitiateBuyOrderDto {
     @IsNumber()
     amount: number;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
@@ -82,7 +85,7 @@ export class InitiateBuyOrderDto {
         description: "Preferred payment method for the buy flow",
     })
     @Transform(({ value }) =>
-        typeof value === "string" ? value.trim().toUpperCase() : value
+        typeof value === "string" ? value.trim().toUpperCase() : value,
     )
     @IsOptional()
     @IsEnum(PaymentMethod)
@@ -154,12 +157,18 @@ export class BuyCryptoOrderDto {
     @IsNumber()
     totalAmountToPayInFiat: number;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
 
-    @ApiProperty({ description: "Unique key to prevent duplicate buy orders", required: true })
+    @ApiProperty({
+        description: "Unique key to prevent duplicate buy orders",
+        required: true,
+    })
     @IsNotEmpty()
     @IsString()
     idempotencyKey: string;
@@ -169,7 +178,7 @@ export class BuyCryptoOrderDto {
         description: "Preferred payment method for the buy order",
     })
     @Transform(({ value }) =>
-        typeof value === "string" ? value.trim().toUpperCase() : value
+        typeof value === "string" ? value.trim().toUpperCase() : value,
     )
     @IsOptional()
     @IsEnum(PaymentMethod)
@@ -254,12 +263,18 @@ export class SellCryptoOrderDto {
     @Type(() => BankDetailDto)
     bankDetail: BankDetailDto;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
 
-    @ApiProperty({ description: "Unique key to prevent duplicate orders", required: true })
+    @ApiProperty({
+        description: "Unique key to prevent duplicate orders",
+        required: true,
+    })
     @IsNotEmpty()
     @IsString()
     idempotencyKey: string;
@@ -277,7 +292,10 @@ export class VerifyWalletAddressDto {
     @IsEnum(SupportedAssets)
     currency: SupportedAssets;
 
-    @ApiProperty({ description: "Blockchain network for address validation", required: false })
+    @ApiProperty({
+        description: "Blockchain network for address validation",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     network?: string;
@@ -351,26 +369,40 @@ export class ConfirmInstantSwapQuoteDto {
     quotationId: string;
 
     // Optional fields for auto-refresh if quote has expired
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, required: false, description: "Required for auto-refresh if quote expired" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        required: false,
+        description: "Required for auto-refresh if quote expired",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsOptional()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     from_currency?: string;
 
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, required: false, description: "Required for auto-refresh if quote expired" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        required: false,
+        description: "Required for auto-refresh if quote expired",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsOptional()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     to_currency?: string;
 
-    @ApiProperty({ required: false, description: "Amount to swap (for auto-refresh)" })
+    @ApiProperty({
+        required: false,
+        description: "Amount to swap (for auto-refresh)",
+    })
     @IsOptional()
     @IsNumber()
     @IsPositive()
     @Transform(({ value }) => +value)
     from_amount?: number;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
@@ -381,13 +413,19 @@ export class ConfirmInstantSwapQuoteDto {
  * This eliminates all timing issues with quote expiry.
  */
 export class ExecuteAtomicSwapDto {
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap from" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        description: "Currency to swap from",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     from_currency: string;
 
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap to" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        description: "Currency to swap to",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
@@ -400,7 +438,10 @@ export class ExecuteAtomicSwapDto {
     @Transform(({ value }) => +value)
     from_amount: number;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
@@ -435,7 +476,10 @@ export class WithdrawerRequestDto {
     @IsString()
     transaction_note?: string;
 
-    @ApiProperty({ description: "narration for the recipient", required: false })
+    @ApiProperty({
+        description: "narration for the recipient",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     narration?: string;
@@ -460,7 +504,8 @@ export class WithdrawerRequestDto {
     destinationTag?: string; //destination tag
 
     @ApiProperty({
-        description: "Confirm recipient wallet does not require destination tag/memo",
+        description:
+            "Confirm recipient wallet does not require destination tag/memo",
         required: false,
     })
     @IsOptional()
@@ -472,7 +517,10 @@ export class WithdrawerRequestDto {
     @IsString()
     twoFactorCode?: string;
 
-    @ApiProperty({ description: "Security verification token", required: false })
+    @ApiProperty({
+        description: "Security verification token",
+        required: false,
+    })
     @IsOptional()
     @IsString()
     verificationToken?: string;
@@ -525,7 +573,7 @@ export class PurchaseLimitBuyDto {
 export class GetMarketChartDto {
     @ApiProperty({
         example: "BTC",
-        description: "Asset symbol (e.g., BTC, ETH, USDT)"
+        description: "Asset symbol (e.g., BTC, ETH, USDT)",
     })
     @IsNotEmpty()
     @IsString()
@@ -534,7 +582,7 @@ export class GetMarketChartDto {
     @ApiProperty({
         example: 7,
         description: "Number of days of data (1, 7, 30, 90, 365)",
-        default: 7
+        default: 7,
     })
     @IsOptional()
     @Transform(({ value }) => +value)
@@ -546,7 +594,7 @@ export class GetMarketChartDto {
 export class GetBatchSparklinesDto {
     @ApiProperty({
         example: "BTC,ETH,USDT",
-        description: "Comma-separated list of asset symbols"
+        description: "Comma-separated list of asset symbols",
     })
     @IsNotEmpty()
     @IsString()
@@ -556,13 +604,19 @@ export class GetBatchSparklinesDto {
 // ==================== ADMIN SWAP DTOs ====================
 
 export class AdminSwapQuoteDto {
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap from" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        description: "Currency to swap from",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
     from_currency: string;
 
-    @ApiProperty({ enum: SUPPORTED_TRADE_ASSET_SYMBOLS, description: "Currency to swap to" })
+    @ApiProperty({
+        enum: SUPPORTED_TRADE_ASSET_SYMBOLS,
+        description: "Currency to swap to",
+    })
     @Transform(({ value }) => value?.toUpperCase())
     @IsNotEmpty()
     @IsIn(SUPPORTED_TRADE_ASSET_SYMBOLS)
@@ -616,12 +670,19 @@ export class AdminAdjustmentDto {
     @IsEnum(AdminAdjustmentDirection)
     direction?: AdminAdjustmentDirection;
 
-    @ApiProperty({ example: "Backfill for order 2 — legacy path did not create ledger entry" })
+    @ApiProperty({
+        example:
+            "Backfill for order 2 — legacy path did not create ledger entry",
+    })
     @IsNotEmpty()
     @IsString()
     reason: string;
 
-    @ApiProperty({ example: 2, description: "Optional order ID to link the ledger entry to", required: false })
+    @ApiProperty({
+        example: 2,
+        description: "Optional order ID to link the ledger entry to",
+        required: false,
+    })
     @IsOptional()
     @IsNumber()
     orderId?: number;

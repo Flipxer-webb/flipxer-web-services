@@ -11,7 +11,9 @@ import {
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -279,7 +281,9 @@ describe("TradingService (index)", () => {
     describe("password-change cooldown", () => {
         it("buyCryptoOrder blocks during cooldown", async () => {
             const { service, prisma, buyOrderService } = makeDeps();
-            prisma.user.findUnique.mockResolvedValue({ passwordChangedAt: new Date() });
+            prisma.user.findUnique.mockResolvedValue({
+                passwordChangedAt: new Date(),
+            });
 
             await expect(
                 service.buyCryptoOrder({ id: 10 } as any, { amount: 1 } as any),
@@ -317,29 +321,46 @@ describe("TradingService (index)", () => {
 
         it("swapTransactionHandler delegates to webhook handler", async () => {
             const { service, webhookHandlerService } = makeDeps();
-            webhookHandlerService.swapTransactionHandler.mockResolvedValue({ ok: 1 });
+            webhookHandlerService.swapTransactionHandler.mockResolvedValue({
+                ok: 1,
+            });
 
-            const res = await service.swapTransactionHandler({ id: "s" } as any);
+            const res = await service.swapTransactionHandler({
+                id: "s",
+            } as any);
 
             expect(res).toEqual({ ok: 1 });
-            expect(webhookHandlerService.swapTransactionHandler).toHaveBeenCalled();
+            expect(
+                webhookHandlerService.swapTransactionHandler,
+            ).toHaveBeenCalled();
         });
 
         it("withdrawerTransactionHandler delegates to webhook handler", async () => {
             const { service, webhookHandlerService } = makeDeps();
-            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue({ ok: 1 });
+            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue(
+                { ok: 1 },
+            );
 
-            const res = await service.withdrawerTransactionHandler({ id: "w" } as any);
+            const res = await service.withdrawerTransactionHandler({
+                id: "w",
+            } as any);
 
             expect(res).toEqual({ ok: 1 });
-            expect(webhookHandlerService.withdrawerTransactionHandler).toHaveBeenCalled();
+            expect(
+                webhookHandlerService.withdrawerTransactionHandler,
+            ).toHaveBeenCalled();
         });
 
         it("handleSweepConfirmation delegates to sweep service", async () => {
             const { service, sweepService } = makeDeps();
-            sweepService.handleSweepConfirmation.mockResolvedValue({ ok: true });
+            sweepService.handleSweepConfirmation.mockResolvedValue({
+                ok: true,
+            });
 
-            const res = await service.handleSweepConfirmation("tx-1", "completed");
+            const res = await service.handleSweepConfirmation(
+                "tx-1",
+                "completed",
+            );
 
             expect(res).toEqual({ ok: true });
             expect(sweepService.handleSweepConfirmation).toHaveBeenCalledWith(
@@ -351,9 +372,13 @@ describe("TradingService (index)", () => {
 
         it("getGeneratedWalletAddress delegates to quidax service", async () => {
             const { service, quidaxService } = makeDeps();
-            quidaxService.getPaymentAddressById.mockResolvedValue({ data: { id: "p1" } });
+            quidaxService.getPaymentAddressById.mockResolvedValue({
+                data: { id: "p1" },
+            });
 
-            const res = await service.getGeneratedWalletAddress({ id: "p1" } as any);
+            const res = await service.getGeneratedWalletAddress({
+                id: "p1",
+            } as any);
 
             expect(res).toEqual({ data: { id: "p1" } });
             expect(quidaxService.getPaymentAddressById).toHaveBeenCalled();
@@ -367,7 +392,11 @@ describe("TradingService (index)", () => {
 
             const res = await service.getSwapEstimate(
                 { id: 10 } as any,
-                { from_amount: 1, from_currency: "btc", to_currency: "eth" } as any,
+                {
+                    from_amount: 1,
+                    from_currency: "btc",
+                    to_currency: "eth",
+                } as any,
             );
 
             expect(res.data.quoted_price).toBe(12.5);
@@ -385,36 +414,85 @@ describe("TradingService (index)", () => {
                 sendService,
             } = makeDeps();
 
-            quidaxService.getPaymentMethods.mockResolvedValue({ data: ["bank_transfer"] });
-            quidaxService.getPurchaseLimitForBuy.mockResolvedValue({ data: { min: 10, max: 1000 } });
-            walletAddressService.ensureWalletPaymentAddresses.mockResolvedValue([{ id: "addr-1" }]);
-            walletAddressService.getWalletAddress.mockResolvedValue({ id: "w-1" });
-            walletAddressService.getWalletAddresses.mockResolvedValue([{ id: "w-1" }, { id: "w-2" }]);
-            walletAddressService.verifyWalletAddress.mockResolvedValue({ data: { valid: true } });
-            walletAddressService.initiateWalletAddressCreation.mockResolvedValue({ message: "queued" });
-
-            buyOrderService.buyCryptoQuoteRequest.mockResolvedValue({ data: { quote: true } });
-            sellOrderService.sellCryptoQuoteRequest.mockResolvedValue({ data: { quote: true } });
-            buyOrderService.confirmPaymentSent.mockResolvedValue({ data: { confirmed: true } });
-            buyOrderService.getBuyOrderStatus.mockResolvedValue({ data: { status: "pending" } });
-            buyOrderService.cancelBuyOrder.mockResolvedValue({ data: { cancelled: true } });
-            buyOrderService.notifyPendingBuyOrder.mockResolvedValue({ data: {} });
-            sellOrderService.sellCryptoOrder.mockResolvedValue({ data: { orderId: 2 } });
-            buyOrderService.calculateBuyQuote.mockResolvedValue({ buyRate: 100 });
-            sellOrderService.calculateSellQuote.mockResolvedValue({ sellRate: 90 });
-
-            swapService.createInstantSwap.mockResolvedValue({ data: { id: "swap-1" } });
-            swapService.refreshInstantSwap.mockResolvedValue({ data: { id: "swap-1", refreshed: true } });
-            swapService.confirmInstantSwapQuote.mockResolvedValue({ data: { confirmed: true } });
-
-            sendService.withdrawerRequest.mockResolvedValue({ data: { queued: false } });
-            sendService.cancelWithdrawerRequest.mockResolvedValue({ data: { cancelled: true } });
-            sendService.getCryptoWithdrawerFee.mockResolvedValue({ data: { totalFee: 0.1 } });
-
-            await expect(service.getSupportedPaymentMethod({} as any)).resolves.toMatchObject({
+            quidaxService.getPaymentMethods.mockResolvedValue({
                 data: ["bank_transfer"],
             });
-            await expect(service.getPurchaseLimitForBuy({} as any)).resolves.toMatchObject({
+            quidaxService.getPurchaseLimitForBuy.mockResolvedValue({
+                data: { min: 10, max: 1000 },
+            });
+            walletAddressService.ensureWalletPaymentAddresses.mockResolvedValue(
+                [{ id: "addr-1" }],
+            );
+            walletAddressService.getWalletAddress.mockResolvedValue({
+                id: "w-1",
+            });
+            walletAddressService.getWalletAddresses.mockResolvedValue([
+                { id: "w-1" },
+                { id: "w-2" },
+            ]);
+            walletAddressService.verifyWalletAddress.mockResolvedValue({
+                data: { valid: true },
+            });
+            walletAddressService.initiateWalletAddressCreation.mockResolvedValue(
+                { message: "queued" },
+            );
+
+            buyOrderService.buyCryptoQuoteRequest.mockResolvedValue({
+                data: { quote: true },
+            });
+            sellOrderService.sellCryptoQuoteRequest.mockResolvedValue({
+                data: { quote: true },
+            });
+            buyOrderService.confirmPaymentSent.mockResolvedValue({
+                data: { confirmed: true },
+            });
+            buyOrderService.getBuyOrderStatus.mockResolvedValue({
+                data: { status: "pending" },
+            });
+            buyOrderService.cancelBuyOrder.mockResolvedValue({
+                data: { cancelled: true },
+            });
+            buyOrderService.notifyPendingBuyOrder.mockResolvedValue({
+                data: {},
+            });
+            sellOrderService.sellCryptoOrder.mockResolvedValue({
+                data: { orderId: 2 },
+            });
+            buyOrderService.calculateBuyQuote.mockResolvedValue({
+                buyRate: 100,
+            });
+            sellOrderService.calculateSellQuote.mockResolvedValue({
+                sellRate: 90,
+            });
+
+            swapService.createInstantSwap.mockResolvedValue({
+                data: { id: "swap-1" },
+            });
+            swapService.refreshInstantSwap.mockResolvedValue({
+                data: { id: "swap-1", refreshed: true },
+            });
+            swapService.confirmInstantSwapQuote.mockResolvedValue({
+                data: { confirmed: true },
+            });
+
+            sendService.withdrawerRequest.mockResolvedValue({
+                data: { queued: false },
+            });
+            sendService.cancelWithdrawerRequest.mockResolvedValue({
+                data: { cancelled: true },
+            });
+            sendService.getCryptoWithdrawerFee.mockResolvedValue({
+                data: { totalFee: 0.1 },
+            });
+
+            await expect(
+                service.getSupportedPaymentMethod({} as any),
+            ).resolves.toMatchObject({
+                data: ["bank_transfer"],
+            });
+            await expect(
+                service.getPurchaseLimitForBuy({} as any),
+            ).resolves.toMatchObject({
                 data: { min: 10, max: 1000 },
             });
 
@@ -425,65 +503,100 @@ describe("TradingService (index)", () => {
                     assetSymbol: "BTC",
                 }),
             ).resolves.toEqual([{ id: "addr-1" }]);
-            await expect(service.getWalletAddress(10, {} as any)).resolves.toEqual({ id: "w-1" });
-            await expect(service.getWalletAddresses(10, {} as any)).resolves.toEqual([
-                { id: "w-1" },
-                { id: "w-2" },
-            ]);
-            await expect(service.verifyWalletAddress({} as any)).resolves.toEqual({ data: { valid: true } });
-            await expect(service.initiateWalletAddressCreation(10, {} as any)).resolves.toEqual({ message: "queued" });
+            await expect(
+                service.getWalletAddress(10, {} as any),
+            ).resolves.toEqual({ id: "w-1" });
+            await expect(
+                service.getWalletAddresses(10, {} as any),
+            ).resolves.toEqual([{ id: "w-1" }, { id: "w-2" }]);
+            await expect(
+                service.verifyWalletAddress({} as any),
+            ).resolves.toEqual({ data: { valid: true } });
+            await expect(
+                service.initiateWalletAddressCreation(10, {} as any),
+            ).resolves.toEqual({ message: "queued" });
 
-            await expect(service.buyCryptoQuoteRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.buyCryptoQuoteRequest({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { quote: true },
             });
-            await expect(service.sellCryptoQuoteRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.sellCryptoQuoteRequest({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { quote: true },
             });
-            await expect(service.confirmPaymentSent("ref-1", 10)).resolves.toEqual({
+            await expect(
+                service.confirmPaymentSent("ref-1", 10),
+            ).resolves.toEqual({
                 data: { confirmed: true },
             });
-            await expect(service.getBuyOrderStatus("ref-1", 10)).resolves.toEqual({
+            await expect(
+                service.getBuyOrderStatus("ref-1", 10),
+            ).resolves.toEqual({
                 data: { status: "pending" },
             });
             await expect(service.cancelBuyOrder("ref-1", 10)).resolves.toEqual({
                 data: { cancelled: true },
             });
-            await expect(service.notifyPendingBuyOrder("ref-1", 10)).resolves.toEqual({
+            await expect(
+                service.notifyPendingBuyOrder("ref-1", 10),
+            ).resolves.toEqual({
                 data: {},
             });
-            await expect(service.sellCryptoOrder({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.sellCryptoOrder({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { orderId: 2 },
             });
-            await expect(service.calculateBuyQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.calculateBuyQuote({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 buyRate: 100,
             });
-            await expect(service.calculateSellQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.calculateSellQuote({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 sellRate: 90,
             });
 
-            await expect(service.createInstantSwap({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.createInstantSwap({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { id: "swap-1" },
             });
-            await expect(service.refreshInstantSwap({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.refreshInstantSwap({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { id: "swap-1", refreshed: true },
             });
-            await expect(service.confirmInstantSwapQuote({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.confirmInstantSwapQuote({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { confirmed: true },
             });
 
-            await expect(service.withdrawerRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.withdrawerRequest({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { queued: false },
             });
-            await expect(service.cancelWithdrawerRequest({ id: 10 } as any, {} as any)).resolves.toEqual({
+            await expect(
+                service.cancelWithdrawerRequest({ id: 10 } as any, {} as any),
+            ).resolves.toEqual({
                 data: { cancelled: true },
             });
-            await expect(service.getCryptoWithdrawerFee({} as any)).resolves.toEqual({
+            await expect(
+                service.getCryptoWithdrawerFee({} as any),
+            ).resolves.toEqual({
                 data: { totalFee: 0.1 },
             });
 
             expect(quidaxService.getPaymentMethods).toHaveBeenCalled();
             expect(quidaxService.getPurchaseLimitForBuy).toHaveBeenCalled();
-            expect(walletAddressService.ensureWalletPaymentAddresses).toHaveBeenCalled();
+            expect(
+                walletAddressService.ensureWalletPaymentAddresses,
+            ).toHaveBeenCalled();
             expect(swapService.confirmInstantSwapQuote).toHaveBeenCalled();
             expect(sendService.getCryptoWithdrawerFee).toHaveBeenCalled();
         });
@@ -491,9 +604,16 @@ describe("TradingService (index)", () => {
         it("delegates provider-facing helper methods", async () => {
             const { service, quidaxService, prisma } = makeDeps();
 
-            quidaxService.getSwapTransaction.mockResolvedValue({ data: { id: "swap-ref" } });
-            quidaxService.getWithdrawerByReference.mockResolvedValue({ data: { id: "wd-ref" } });
-            quidaxService.createOrFindSubAccount.mockResolvedValue({ status: "success", data: { id: "sub-1" } });
+            quidaxService.getSwapTransaction.mockResolvedValue({
+                data: { id: "swap-ref" },
+            });
+            quidaxService.getWithdrawerByReference.mockResolvedValue({
+                data: { id: "wd-ref" },
+            });
+            quidaxService.createOrFindSubAccount.mockResolvedValue({
+                status: "success",
+                data: { id: "sub-1" },
+            });
 
             prisma.assetWallet.findMany.mockResolvedValue(
                 [
@@ -517,18 +637,28 @@ describe("TradingService (index)", () => {
                 })),
             );
 
-            await expect(service.verifySwapQuoteTransaction("swap-ref", "user-sub-1")).resolves.toEqual({
+            await expect(
+                service.verifySwapQuoteTransaction("swap-ref", "user-sub-1"),
+            ).resolves.toEqual({
                 data: { id: "swap-ref" },
             });
             await expect(
-                service.getWithdrawerTransactionByReference("wd-ref", "user-sub-1"),
+                service.getWithdrawerTransactionByReference(
+                    "wd-ref",
+                    "user-sub-1",
+                ),
             ).resolves.toEqual({
                 data: { id: "wd-ref" },
             });
             await expect(
-                service.triggerQuidaxAccountCreation({ id: 10, email: "user@example.com" } as any),
+                service.triggerQuidaxAccountCreation({
+                    id: 10,
+                    email: "user@example.com",
+                } as any),
             ).resolves.toMatchObject({
-                message: expect.stringContaining("account already fully set up"),
+                message: expect.stringContaining(
+                    "account already fully set up",
+                ),
             });
         });
     });
@@ -548,7 +678,10 @@ describe("TradingService (index)", () => {
         it("throws when order is not pending/processing", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ streamlinedStatus: "completed", status: OrderStatus.done }),
+                pendingOrder({
+                    streamlinedStatus: "completed",
+                    status: OrderStatus.done,
+                }),
             );
 
             await expect(service.cancelOrder(user, 1)).rejects.toBeInstanceOf(
@@ -557,15 +690,30 @@ describe("TradingService (index)", () => {
         });
 
         it("cancels SEND order and releases hold", async () => {
-            const { service, prisma, quidaxService, ledgerService, wsGateway, walletAddressService } = makeDeps();
+            const {
+                service,
+                prisma,
+                quidaxService,
+                ledgerService,
+                wsGateway,
+                walletAddressService,
+            } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
                 pendingOrder({ orderCategory: OrderCategory.SEND }),
             );
-            quidaxService.getWithdrawerDetail.mockResolvedValue({ data: { status: "pending" } });
-            quidaxService.cancelWithdrawerRequest.mockResolvedValue({ data: { ok: true } });
+            quidaxService.getWithdrawerDetail.mockResolvedValue({
+                data: { status: "pending" },
+            });
+            quidaxService.cancelWithdrawerRequest.mockResolvedValue({
+                data: { ok: true },
+            });
             ledgerService.releaseHold.mockResolvedValue({ success: true });
             prisma.order.update.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SEND, status: OrderStatus.cancelled, streamlinedStatus: "cancelled" }),
+                pendingOrder({
+                    orderCategory: OrderCategory.SEND,
+                    status: OrderStatus.cancelled,
+                    streamlinedStatus: "cancelled",
+                }),
             );
 
             const res = await service.cancelOrder(user, 1);
@@ -578,7 +726,9 @@ describe("TradingService (index)", () => {
             );
             expect(prisma.order.update).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ status: OrderStatus.cancelled }),
+                    data: expect.objectContaining({
+                        status: OrderStatus.cancelled,
+                    }),
                 }),
             );
             expect(walletAddressService.syncWallet).toHaveBeenCalled();
@@ -591,9 +741,14 @@ describe("TradingService (index)", () => {
             prisma.order.findFirst.mockResolvedValue(
                 pendingOrder({ orderCategory: OrderCategory.SEND }),
             );
-            quidaxService.getWithdrawerDetail.mockResolvedValue({ data: { status: "done" } });
+            quidaxService.getWithdrawerDetail.mockResolvedValue({
+                data: { status: "done" },
+            });
             prisma.order.update.mockResolvedValue(
-                pendingOrder({ status: OrderStatus.done, streamlinedStatus: "completed" }),
+                pendingOrder({
+                    status: OrderStatus.done,
+                    streamlinedStatus: "completed",
+                }),
             );
 
             await expect(service.cancelOrder(user, 1)).rejects.toBeInstanceOf(
@@ -602,14 +757,25 @@ describe("TradingService (index)", () => {
         });
 
         it("throws when SEND hold release fails and hold is still active", async () => {
-            const { service, prisma, quidaxService, ledgerService } = makeDeps();
+            const { service, prisma, quidaxService, ledgerService } =
+                makeDeps();
             prisma.order.findFirst.mockResolvedValue(
                 pendingOrder({ orderCategory: OrderCategory.SEND }),
             );
-            quidaxService.getWithdrawerDetail.mockResolvedValue({ data: { status: "pending" } });
-            quidaxService.cancelWithdrawerRequest.mockResolvedValue({ data: { ok: true } });
-            ledgerService.releaseHold.mockResolvedValue({ success: false, error: "release failed" });
-            prisma.ledgerEntry.findFirst.mockResolvedValue({ id: "h1", status: EntryStatus.HOLD });
+            quidaxService.getWithdrawerDetail.mockResolvedValue({
+                data: { status: "pending" },
+            });
+            quidaxService.cancelWithdrawerRequest.mockResolvedValue({
+                data: { ok: true },
+            });
+            ledgerService.releaseHold.mockResolvedValue({
+                success: false,
+                error: "release failed",
+            });
+            prisma.ledgerEntry.findFirst.mockResolvedValue({
+                id: "h1",
+                status: EntryStatus.HOLD,
+            });
 
             await expect(service.cancelOrder(user, 1)).rejects.toBeInstanceOf(
                 GeneralTransactionException,
@@ -617,13 +783,22 @@ describe("TradingService (index)", () => {
         });
 
         it("cancels SWAP order and refunds via executeInternalBuy", async () => {
-            const { service, prisma, buyOrderService, walletAddressService } = makeDeps();
+            const { service, prisma, buyOrderService, walletAddressService } =
+                makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SWAP, currency: "USDT", amount: 50 }),
+                pendingOrder({
+                    orderCategory: OrderCategory.SWAP,
+                    currency: "USDT",
+                    amount: 50,
+                }),
             );
             buyOrderService.executeInternalBuy.mockResolvedValue({ ok: true });
             prisma.order.update.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SWAP, status: OrderStatus.cancelled, streamlinedStatus: "cancelled" }),
+                pendingOrder({
+                    orderCategory: OrderCategory.SWAP,
+                    status: OrderStatus.cancelled,
+                    streamlinedStatus: "cancelled",
+                }),
             );
 
             const res = await service.cancelOrder(user, 1);
@@ -643,7 +818,9 @@ describe("TradingService (index)", () => {
             prisma.order.findFirst.mockResolvedValue(
                 pendingOrder({ orderCategory: OrderCategory.SWAP }),
             );
-            buyOrderService.executeInternalBuy.mockRejectedValue(new Error("refund failed"));
+            buyOrderService.executeInternalBuy.mockRejectedValue(
+                new Error("refund failed"),
+            );
 
             await expect(service.cancelOrder(user, 1)).rejects.toBeInstanceOf(
                 GeneralTransactionException,
@@ -660,7 +837,10 @@ describe("TradingService (index)", () => {
 
         it("getFee handles percentage fee", async () => {
             const { service } = makeDeps();
-            const fee = await service.getFee(200, { type: "percentage", fee: 2.5 });
+            const fee = await service.getFee(200, {
+                type: "percentage",
+                fee: 2.5,
+            });
             expect(fee).toEqual({ fee: 5, type: "percentage" });
         });
 
@@ -734,7 +914,10 @@ describe("TradingService (index)", () => {
                 maxSupply: 2_000_000,
             });
             liveCoinWatchService.getHistoricalData.mockResolvedValue({
-                prices: [[1, 90], [2, 100]],
+                prices: [
+                    [1, 90],
+                    [2, 100],
+                ],
                 high24h: 110,
                 low24h: 80,
             });
@@ -747,14 +930,22 @@ describe("TradingService (index)", () => {
         });
 
         it("getMarketChart falls back to CoinCap for market and history", async () => {
-            const { service, liveCoinWatchService, coinCapService } = makeDeps();
-            liveCoinWatchService.getMarketData.mockRejectedValue(new Error("lcw down"));
-            liveCoinWatchService.getHistoricalData.mockRejectedValue(new Error("lcw history down"));
+            const { service, liveCoinWatchService, coinCapService } =
+                makeDeps();
+            liveCoinWatchService.getMarketData.mockRejectedValue(
+                new Error("lcw down"),
+            );
+            liveCoinWatchService.getHistoricalData.mockRejectedValue(
+                new Error("lcw history down"),
+            );
             coinCapService.getBatchMarketData.mockResolvedValue({
                 btc: { price: 120, change24h: 5 },
             });
             coinCapService.getHistoricalData.mockResolvedValue({
-                prices: [[1, 100], [2, 120]],
+                prices: [
+                    [1, 100],
+                    [2, 120],
+                ],
                 high24h: 125,
                 low24h: 95,
             });
@@ -762,16 +953,27 @@ describe("TradingService (index)", () => {
             const res = await service.getMarketChart("btc", 7);
 
             expect(res.data.market_data.current_price).toBe(120);
-            expect(res.data.market_data.price_change_percentage_24h).toBeCloseTo(5, 6);
+            expect(
+                res.data.market_data.price_change_percentage_24h,
+            ).toBeCloseTo(5, 6);
             expect(res.data.prices.length).toBe(2);
         });
 
         it("getMarketChart returns null/empty data when both providers fail", async () => {
-            const { service, liveCoinWatchService, coinCapService } = makeDeps();
-            liveCoinWatchService.getMarketData.mockRejectedValue(new Error("lcw down"));
-            liveCoinWatchService.getHistoricalData.mockRejectedValue(new Error("lcw history down"));
-            coinCapService.getBatchMarketData.mockRejectedValue(new Error("cc down"));
-            coinCapService.getHistoricalData.mockRejectedValue(new Error("cc history down"));
+            const { service, liveCoinWatchService, coinCapService } =
+                makeDeps();
+            liveCoinWatchService.getMarketData.mockRejectedValue(
+                new Error("lcw down"),
+            );
+            liveCoinWatchService.getHistoricalData.mockRejectedValue(
+                new Error("lcw history down"),
+            );
+            coinCapService.getBatchMarketData.mockRejectedValue(
+                new Error("cc down"),
+            );
+            coinCapService.getHistoricalData.mockRejectedValue(
+                new Error("cc history down"),
+            );
 
             const res = await service.getMarketChart("btc", 7);
 
@@ -781,7 +983,9 @@ describe("TradingService (index)", () => {
 
         it("getBatchSparklines uses LiveCoinWatch first", async () => {
             const { service, liveCoinWatchService } = makeDeps();
-            liveCoinWatchService.getBatchSparklines.mockResolvedValue({ btc: [1, 2, 3] });
+            liveCoinWatchService.getBatchSparklines.mockResolvedValue({
+                btc: [1, 2, 3],
+            });
 
             const res = await service.getBatchSparklines(["btc"]);
 
@@ -789,9 +993,14 @@ describe("TradingService (index)", () => {
         });
 
         it("getBatchSparklines falls back to CoinCap", async () => {
-            const { service, liveCoinWatchService, coinCapService } = makeDeps();
-            liveCoinWatchService.getBatchSparklines.mockRejectedValue(new Error("lcw down"));
-            coinCapService.getBatchSparklines.mockResolvedValue({ btc: [3, 4] });
+            const { service, liveCoinWatchService, coinCapService } =
+                makeDeps();
+            liveCoinWatchService.getBatchSparklines.mockRejectedValue(
+                new Error("lcw down"),
+            );
+            coinCapService.getBatchSparklines.mockResolvedValue({
+                btc: [3, 4],
+            });
 
             const res = await service.getBatchSparklines(["btc"]);
 
@@ -799,9 +1008,14 @@ describe("TradingService (index)", () => {
         });
 
         it("getBatchSparklines returns empty arrays when both providers fail", async () => {
-            const { service, liveCoinWatchService, coinCapService } = makeDeps();
-            liveCoinWatchService.getBatchSparklines.mockRejectedValue(new Error("lcw down"));
-            coinCapService.getBatchSparklines.mockRejectedValue(new Error("cc down"));
+            const { service, liveCoinWatchService, coinCapService } =
+                makeDeps();
+            liveCoinWatchService.getBatchSparklines.mockRejectedValue(
+                new Error("lcw down"),
+            );
+            coinCapService.getBatchSparklines.mockRejectedValue(
+                new Error("cc down"),
+            );
 
             const res = await service.getBatchSparklines(["btc", "eth"]);
 
@@ -987,7 +1201,9 @@ describe("TradingService (index)", () => {
             prisma.cryptoWalletAddress.findUnique.mockResolvedValue(null);
 
             await expect(
-                service.walletAddressCreatedSuccessHandler({ walletAddressId: "wa-1" } as any),
+                service.walletAddressCreatedSuccessHandler({
+                    walletAddressId: "wa-1",
+                } as any),
             ).resolves.toBeUndefined();
             expect(prisma.cryptoWalletAddress.update).not.toHaveBeenCalled();
         });
@@ -1066,7 +1282,11 @@ describe("TradingService (index)", () => {
 
             const processWalletForCurrencySpy = jest
                 .spyOn(service as any, "processWalletForCurrency")
-                .mockResolvedValue({ currency: "xrp", success: true, addresses: 1 });
+                .mockResolvedValue({
+                    currency: "xrp",
+                    success: true,
+                    addresses: 1,
+                });
 
             await expect(
                 service.triggerQuidaxAccountCreation({
@@ -1075,7 +1295,9 @@ describe("TradingService (index)", () => {
                     cryptoSubAccountId: "sub-10",
                 } as any),
             ).resolves.toMatchObject({
-                message: expect.stringContaining("account generation completed"),
+                message: expect.stringContaining(
+                    "account generation completed",
+                ),
             });
 
             expect(processWalletForCurrencySpy).toHaveBeenCalledTimes(1);
@@ -1096,7 +1318,9 @@ describe("TradingService (index)", () => {
                 cryptoSubAccountId: null,
             });
 
-            await expect(service.syncUserDeposits(10)).rejects.toBeInstanceOf(Error);
+            await expect(service.syncUserDeposits(10)).rejects.toBeInstanceOf(
+                Error,
+            );
         });
 
         it("enqueueUserDepositSync queues deposit sync for users with sub-accounts", async () => {
@@ -1108,7 +1332,9 @@ describe("TradingService (index)", () => {
 
             const result = await service.enqueueUserDepositSync(10);
 
-            expect(cryptoAccountQueueProducer.enqueueDepositSync).toHaveBeenCalledWith(10);
+            expect(
+                cryptoAccountQueueProducer.enqueueDepositSync,
+            ).toHaveBeenCalledWith(10);
             expect(result.message).toBe("Deposit sync queued");
             expect(result.data).toEqual({ queued: true, userId: 10 });
         });
@@ -1130,7 +1356,9 @@ describe("TradingService (index)", () => {
             ]);
             quidaxService.fetchDeposits.mockRejectedValue(throttleError);
 
-            await expect(service.syncUserDeposits(10)).rejects.toBe(throttleError);
+            await expect(service.syncUserDeposits(10)).rejects.toBe(
+                throttleError,
+            );
 
             expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(1);
             expect(quidaxService.fetchDeposits).toHaveBeenCalledWith({
@@ -1221,12 +1449,11 @@ describe("TradingService (index)", () => {
             await service.syncUserDeposits(10);
 
             expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(4);
-            expect(quidaxService.fetchDeposits.mock.calls.map(([options]: any[]) => options.currency)).toEqual([
-                "ada",
-                "doge",
-                "ltc",
-                "shib",
-            ]);
+            expect(
+                quidaxService.fetchDeposits.mock.calls.map(
+                    ([options]: any[]) => options.currency,
+                ),
+            ).toEqual(["ada", "doge", "ltc", "shib"]);
         });
 
         it("syncUserDeposits preserves the new-user fallback when no active deposit addresses exist", async () => {
@@ -1245,11 +1472,11 @@ describe("TradingService (index)", () => {
             await service.syncUserDeposits(10);
 
             expect(quidaxService.fetchDeposits).toHaveBeenCalledTimes(3);
-            expect(quidaxService.fetchDeposits.mock.calls.map(([options]: any[]) => options.currency)).toEqual([
-                "btc",
-                "usdt",
-                "eth",
-            ]);
+            expect(
+                quidaxService.fetchDeposits.mock.calls.map(
+                    ([options]: any[]) => options.currency,
+                ),
+            ).toEqual(["btc", "usdt", "eth"]);
         });
 
         it("syncUserDeposits continues after non-throttle currency errors", async () => {
@@ -1323,12 +1550,14 @@ describe("TradingService (index)", () => {
                     return { data: [] };
                 },
             );
-            prisma.order.findUnique.mockImplementation(async ({ where }: any) => {
-                if (where.providerOrderId === "dep-existing-1") {
-                    return { id: 99, providerOrderId: "dep-existing-1" };
-                }
-                return null;
-            });
+            prisma.order.findUnique.mockImplementation(
+                async ({ where }: any) => {
+                    if (where.providerOrderId === "dep-existing-1") {
+                        return { id: 99, providerOrderId: "dep-existing-1" };
+                    }
+                    return null;
+                },
+            );
             prisma.order.findMany.mockResolvedValue([]);
             quidaxService.getSingleMarketTicker.mockResolvedValue({
                 data: { ticker: { buy: "1000" } },
@@ -1351,7 +1580,10 @@ describe("TradingService (index)", () => {
                 updatedAt: new Date("2026-03-29T10:00:00Z"),
             });
 
-            const res = await service.getOrderStatus({ id: 10 } as any, "txn-1");
+            const res = await service.getOrderStatus(
+                { id: 10 } as any,
+                "txn-1",
+            );
 
             expect(res.data.transactionId).toBe("txn-1");
             expect(res.data.status).toBe(OrderStatus.processing);
@@ -1360,7 +1592,10 @@ describe("TradingService (index)", () => {
         it("refreshTransactionStatus returns early for final transaction states", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ status: OrderStatus.done, streamlinedStatus: "completed" }),
+                pendingOrder({
+                    status: OrderStatus.done,
+                    streamlinedStatus: "completed",
+                }),
             );
 
             const res = await service.refreshTransactionStatus(
@@ -1373,7 +1608,8 @@ describe("TradingService (index)", () => {
         });
 
         it("refreshTransactionStatus refreshes SEND transactions from provider", async () => {
-            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            const { service, prisma, quidaxService, webhookHandlerService } =
+                makeDeps();
             prisma.order.findFirst.mockResolvedValue(
                 pendingOrder({
                     orderCategory: OrderCategory.SEND,
@@ -1384,14 +1620,18 @@ describe("TradingService (index)", () => {
             quidaxService.getWithdrawerByReference.mockResolvedValue({
                 data: { status: OrderStatus.done, txid: "tx-hash-1" },
             });
-            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue({ ok: true });
+            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue(
+                { ok: true },
+            );
 
             const res = await service.refreshTransactionStatus(
                 { id: 10, cryptoSubAccountId: "sub-1" } as any,
                 "TX-1",
             );
 
-            expect(webhookHandlerService.withdrawerTransactionHandler).toHaveBeenCalledWith(
+            expect(
+                webhookHandlerService.withdrawerTransactionHandler,
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     orderReference: "ref-send-1",
                     status: OrderStatus.done,
@@ -1401,7 +1641,8 @@ describe("TradingService (index)", () => {
         });
 
         it("refreshTransactionStatus returns the latest SELL order state without provider metadata", async () => {
-            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            const { service, prisma, quidaxService, webhookHandlerService } =
+                makeDeps();
             prisma.order.findFirst
                 .mockResolvedValueOnce(
                     pendingOrder({
@@ -1428,8 +1669,12 @@ describe("TradingService (index)", () => {
                 "TX-sell-1",
             );
 
-            expect(quidaxService.getWithdrawerByReference).not.toHaveBeenCalled();
-            expect(webhookHandlerService.withdrawerTransactionHandler).not.toHaveBeenCalled();
+            expect(
+                quidaxService.getWithdrawerByReference,
+            ).not.toHaveBeenCalled();
+            expect(
+                webhookHandlerService.withdrawerTransactionHandler,
+            ).not.toHaveBeenCalled();
             expect(res).toMatchObject({
                 message: "Transaction status refreshed from order state",
                 data: {
@@ -1446,7 +1691,10 @@ describe("TradingService (index)", () => {
             prisma.order.findFirst.mockResolvedValue(null);
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-404"),
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                    "TX-404",
+                ),
             ).rejects.toBeInstanceOf(TransactionNotFoundException);
         });
 
@@ -1455,19 +1703,40 @@ describe("TradingService (index)", () => {
             const user = { id: 10, cryptoSubAccountId: "sub-1" } as any;
 
             prisma.order.findFirst
-                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.completed, streamlinedStatus: "completed" }))
-                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.failed, streamlinedStatus: "failed" }))
-                .mockResolvedValueOnce(pendingOrder({ status: OrderStatus.cancelled, streamlinedStatus: "cancelled" }));
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        status: OrderStatus.completed,
+                        streamlinedStatus: "completed",
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        status: OrderStatus.failed,
+                        streamlinedStatus: "failed",
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    pendingOrder({
+                        status: OrderStatus.cancelled,
+                        streamlinedStatus: "cancelled",
+                    }),
+                );
 
-            await expect(service.refreshTransactionStatus(user, "TX-final-1")).resolves.toMatchObject({
+            await expect(
+                service.refreshTransactionStatus(user, "TX-final-1"),
+            ).resolves.toMatchObject({
                 message: "Transaction status is already final",
                 data: { status: OrderStatus.completed },
             });
-            await expect(service.refreshTransactionStatus(user, "TX-final-2")).resolves.toMatchObject({
+            await expect(
+                service.refreshTransactionStatus(user, "TX-final-2"),
+            ).resolves.toMatchObject({
                 message: "Transaction status is already final",
                 data: { status: OrderStatus.failed },
             });
-            await expect(service.refreshTransactionStatus(user, "TX-final-3")).resolves.toMatchObject({
+            await expect(
+                service.refreshTransactionStatus(user, "TX-final-3"),
+            ).resolves.toMatchObject({
                 message: "Transaction status is already final",
                 data: { status: OrderStatus.cancelled },
             });
@@ -1476,19 +1745,28 @@ describe("TradingService (index)", () => {
         it("refreshTransactionStatus logs warning when sub-account is missing but does not reject", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SEND, status: OrderStatus.processing }),
+                pendingOrder({
+                    orderCategory: OrderCategory.SEND,
+                    status: OrderStatus.processing,
+                }),
             );
 
             // Should not throw anymore — just warn and proceed
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: null } as any, "TX-no-sub"),
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: null } as any,
+                    "TX-no-sub",
+                ),
             ).resolves.toBeDefined();
         });
 
         it("refreshTransactionStatus returns unsupported response for non-SEND/SELL/SWAP categories", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.BUY, status: OrderStatus.processing }),
+                pendingOrder({
+                    orderCategory: OrderCategory.BUY,
+                    status: OrderStatus.processing,
+                }),
             );
 
             const res = await service.refreshTransactionStatus(
@@ -1501,52 +1779,88 @@ describe("TradingService (index)", () => {
         });
 
         it("refreshTransactionStatus handles SEND rejected, still-processing, and provider failure paths", async () => {
-            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            const { service, prisma, quidaxService, webhookHandlerService } =
+                makeDeps();
 
             prisma.order.findFirst
                 .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-rejected" }),
+                    pendingOrder({
+                        orderCategory: OrderCategory.SEND,
+                        orderReference: "ref-rejected",
+                    }),
                 )
                 .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-pending" }),
+                    pendingOrder({
+                        orderCategory: OrderCategory.SEND,
+                        orderReference: "ref-pending",
+                    }),
                 )
                 .mockResolvedValueOnce(
-                    pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: "ref-error" }),
+                    pendingOrder({
+                        orderCategory: OrderCategory.SEND,
+                        orderReference: "ref-error",
+                    }),
                 );
 
             quidaxService.getWithdrawerByReference
-                .mockResolvedValueOnce({ data: { status: OrderStatus.rejected, txid: "tx-rej" } })
-                .mockResolvedValueOnce({ data: { status: "processing", txid: "tx-proc" } })
+                .mockResolvedValueOnce({
+                    data: { status: OrderStatus.rejected, txid: "tx-rej" },
+                })
+                .mockResolvedValueOnce({
+                    data: { status: "processing", txid: "tx-proc" },
+                })
                 .mockRejectedValueOnce(new Error("provider down"));
 
-            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue({ ok: true });
+            webhookHandlerService.withdrawerTransactionHandler.mockResolvedValue(
+                { ok: true },
+            );
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-1"),
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                    "TX-send-1",
+                ),
             ).resolves.toMatchObject({ message: "Transaction was rejected" });
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-2"),
-            ).resolves.toMatchObject({ message: "Transaction is still processing" });
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                    "TX-send-2",
+                ),
+            ).resolves.toMatchObject({
+                message: "Transaction is still processing",
+            });
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-3"),
-            ).resolves.toMatchObject({ message: "Unable to refresh status. Please try again later." });
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                    "TX-send-3",
+                ),
+            ).resolves.toMatchObject({
+                message: "Unable to refresh status. Please try again later.",
+            });
         });
 
         it("refreshTransactionStatus rejects SEND transactions without order reference", async () => {
             const { service, prisma } = makeDeps();
             prisma.order.findFirst.mockResolvedValue(
-                pendingOrder({ orderCategory: OrderCategory.SEND, orderReference: null }),
+                pendingOrder({
+                    orderCategory: OrderCategory.SEND,
+                    orderReference: null,
+                }),
             );
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: "sub-1" } as any, "TX-send-missing-ref"),
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: "sub-1" } as any,
+                    "TX-send-missing-ref",
+                ),
             ).rejects.toBeInstanceOf(GeneralTransactionException);
         });
 
         it("refreshTransactionStatus returns the latest SWAP order state without provider metadata", async () => {
-            const { service, prisma, quidaxService, webhookHandlerService } = makeDeps();
+            const { service, prisma, quidaxService, webhookHandlerService } =
+                makeDeps();
 
             prisma.order.findFirst
                 .mockResolvedValueOnce(
@@ -1575,7 +1889,9 @@ describe("TradingService (index)", () => {
             );
 
             expect(quidaxService.getSwapTransaction).not.toHaveBeenCalled();
-            expect(webhookHandlerService.swapTransactionHandler).not.toHaveBeenCalled();
+            expect(
+                webhookHandlerService.swapTransactionHandler,
+            ).not.toHaveBeenCalled();
             expect(res).toMatchObject({
                 message: "Transaction status refreshed from order state",
                 data: {
@@ -1606,7 +1922,10 @@ describe("TradingService (index)", () => {
                 );
 
             await expect(
-                service.refreshTransactionStatus({ id: 10, cryptoSubAccountId: null } as any, "TX-swap-missing-provider-id"),
+                service.refreshTransactionStatus(
+                    { id: 10, cryptoSubAccountId: null } as any,
+                    "TX-swap-missing-provider-id",
+                ),
             ).resolves.toMatchObject({
                 message: "Transaction status refreshed from order state",
                 data: {
@@ -1621,19 +1940,33 @@ describe("TradingService (index)", () => {
         it("normalizes deposit statuses and detects BUY-related deposits by amount tolerance", async () => {
             const { service, prisma } = makeDeps();
 
-            expect((service as any).normalizeDepositStatus("successful")).toBe(OrderStatus.accepted);
-            expect((service as any).normalizeDepositStatus("pending")).toBe(OrderStatus.pending);
-            expect((service as any).normalizeDepositStatus("failed")).toBe(OrderStatus.rejected);
-            expect((service as any).normalizeDepositStatus("unknown-status")).toBe(OrderStatus.pending);
+            expect((service as any).normalizeDepositStatus("successful")).toBe(
+                OrderStatus.accepted,
+            );
+            expect((service as any).normalizeDepositStatus("pending")).toBe(
+                OrderStatus.pending,
+            );
+            expect((service as any).normalizeDepositStatus("failed")).toBe(
+                OrderStatus.rejected,
+            );
+            expect(
+                (service as any).normalizeDepositStatus("unknown-status"),
+            ).toBe(OrderStatus.pending);
 
             prisma.order.findMany
                 .mockResolvedValueOnce([{ amount: 100 }])
                 .mockResolvedValueOnce([{ amount: 100 }])
                 .mockResolvedValueOnce([{ amount: 0 }]);
 
-            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 90)).resolves.toBe(true);
-            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 160)).resolves.toBe(false);
-            await expect((service as any).isBuyOrderRelatedDeposit(10, "btc", 1)).resolves.toBe(false);
+            await expect(
+                (service as any).isBuyOrderRelatedDeposit(10, "btc", 90),
+            ).resolves.toBe(true);
+            await expect(
+                (service as any).isBuyOrderRelatedDeposit(10, "btc", 160),
+            ).resolves.toBe(false);
+            await expect(
+                (service as any).isBuyOrderRelatedDeposit(10, "btc", 1),
+            ).resolves.toBe(false);
         });
 
         it("debugUserWallet returns combined db/provider information", async () => {

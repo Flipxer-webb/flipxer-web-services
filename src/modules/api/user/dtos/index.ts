@@ -111,7 +111,8 @@ export class GetUserAssetsDto extends PaginationQueryDto {
     searchText?: string;
 
     @ApiProperty({
-        description: "Include all supported trade assets (even those without wallets)",
+        description:
+            "Include all supported trade assets (even those without wallets)",
         required: false,
     })
     @IsOptional()
@@ -173,7 +174,8 @@ export class GetUserListDto extends PaginationQueryDto {
     tier?: string;
 
     @ApiProperty({
-        description: "filter/sort users by balance: has_balance, zero_balance, highest_first, lowest_first",
+        description:
+            "filter/sort users by balance: has_balance, zero_balance, highest_first, lowest_first",
         required: false,
     })
     @IsOptional()
@@ -232,7 +234,10 @@ export class SetLimitOverrideDto {
     @IsNumber({}, { message: "User ID must be a number" })
     userId: number;
 
-    @ApiProperty({ description: "Daily limit override in USD (null to use tier default)", required: false })
+    @ApiProperty({
+        description: "Daily limit override in USD (null to use tier default)",
+        required: false,
+    })
     @IsOptional()
     @IsNumber({}, { message: "Daily limit must be a number" })
     dailyLimitUSD?: number;
@@ -242,14 +247,19 @@ export class SetLimitOverrideDto {
     @IsString()
     reason: string;
 
-    @ApiProperty({ description: "Override expiration date (ISO 8601). Omit for permanent.", required: false })
+    @ApiProperty({
+        description: "Override expiration date (ISO 8601). Omit for permanent.",
+        required: false,
+    })
     @IsOptional()
     @IsDateString()
     expiresAt?: string;
 }
 
 export class RemoveLimitOverrideDto {
-    @ApiProperty({ description: "The ID of the user to remove the override for" })
+    @ApiProperty({
+        description: "The ID of the user to remove the override for",
+    })
     @IsNotEmpty()
     @IsNumber({}, { message: "User ID must be a number" })
     userId: number;

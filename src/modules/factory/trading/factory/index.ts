@@ -38,11 +38,16 @@ export class TradingFactory implements t.ITradingFactory {
      * This returns an ITradingProvider instance that can be used
      * interchangeably with any trading provider implementation
      */
-    buildProvider<T extends t.Provider>(options: t.BuildOptions<T>): ITradingProvider {
+    buildProvider<T extends t.Provider>(
+        options: t.BuildOptions<T>,
+    ): ITradingProvider {
         if (options.provider === "quidax") {
-            const isMockEnabled = String(process.env.QUIDAX_MOCK).toLowerCase() === "true";
+            const isMockEnabled =
+                String(process.env.QUIDAX_MOCK).toLowerCase() === "true";
             if (isMockEnabled) {
-                logger.warn("QUIDAX_MOCK=true detected — using MockQuidaxTradingProvider");
+                logger.warn(
+                    "QUIDAX_MOCK=true detected — using MockQuidaxTradingProvider",
+                );
                 return new MockQuidaxTradingProvider();
             }
 
@@ -70,7 +75,9 @@ export class TradingFactory implements t.ITradingFactory {
         const hasBaseUrl = !!quidaxConfig.baseUrl;
         const hasApiSecret = !!quidaxConfig.api_secret;
         const hasApiPublic = !!quidaxConfig.api_public;
-        logger.log(`Quidax config check - baseUrl: ${hasBaseUrl}, api_secret: ${hasApiSecret}, api_public: ${hasApiPublic}`);
+        logger.log(
+            `Quidax config check - baseUrl: ${hasBaseUrl}, api_secret: ${hasApiSecret}, api_public: ${hasApiPublic}`,
+        );
 
         if (!hasBaseUrl || !hasApiSecret) {
             const errorMessage = `Missing Quidax configuration: baseUrl and api_secret are required (baseUrl=${hasBaseUrl ? "SET" : "MISSING"}, api_secret=${hasApiSecret ? "SET" : "MISSING"})`;
@@ -84,7 +91,9 @@ export class TradingFactory implements t.ITradingFactory {
             api_secret: quidaxConfig.api_secret,
             baseURL: quidaxConfig.baseUrl,
             rampBaseURL: quidaxConfig.rampBaseUrl,
-            ...(this.requestBudget ? { requestBudget: this.requestBudget } : {}),
+            ...(this.requestBudget
+                ? { requestBudget: this.requestBudget }
+                : {}),
         });
 
         return new QuidaxService(quidax);

@@ -31,7 +31,7 @@ export interface CreateServerOptions {
 const logger = new Logger("ServerBootstrap");
 
 export default async function createServer(
-    options: CreateServerOptions
+    options: CreateServerOptions,
 ): Promise<INestApplication> {
     const app = await NestFactory.create<NestExpressApplication>(AppModule, {
         //logger: false,
@@ -107,7 +107,8 @@ export default async function createServer(
                     defaultSrc: ["'self'"],
                     scriptSrc: [
                         "'self'",
-                        (_req, res) => `'nonce-${(res as Response).locals.cspNonce}'`,
+                        (_req, res) =>
+                            `'nonce-${(res as Response).locals.cspNonce}'`,
                         "https://widget.intercom.io",
                         "https://js.intercomcdn.com",
                     ],
@@ -165,7 +166,7 @@ export default async function createServer(
             },
             noSniff: true,
             hidePoweredBy: true,
-        })
+        }),
     );
     app.use(compression()); // Gzip compression for 60-80% smaller responses
     app.enableCors(corsOptions);
@@ -194,11 +195,11 @@ export default async function createServer(
         "/api/webhook/fincra",
         (req: Request, res: Response, next: NextFunction) => {
             logger.debug(
-                "Forwarding Fincra webhook from /api/webhook/fincra to /webhook/fincra"
+                "Forwarding Fincra webhook from /api/webhook/fincra to /webhook/fincra",
             );
             req.url = "/webhook/fincra";
             next();
-        }
+        },
     );
 
     // Quidax sends webhooks to /quidax, forward to /webhook/quidax
@@ -206,11 +207,11 @@ export default async function createServer(
         "/quidax",
         (req: Request, res: Response, next: NextFunction) => {
             logger.debug(
-                "Forwarding Quidax webhook from /quidax to /webhook/quidax"
+                "Forwarding Quidax webhook from /quidax to /webhook/quidax",
             );
             req.url = "/webhook/quidax";
             next();
-        }
+        },
     );
 
     // Quidax may also send webhooks to /api/webhook/quidax - forward to /webhook/quidax
@@ -218,11 +219,11 @@ export default async function createServer(
         "/api/webhook/quidax",
         (req: Request, res: Response, next: NextFunction) => {
             logger.debug(
-                "Forwarding Quidax webhook from /api/webhook/quidax to /webhook/quidax"
+                "Forwarding Quidax webhook from /api/webhook/quidax to /webhook/quidax",
             );
             req.url = "/webhook/quidax";
             next();
-        }
+        },
     );
 
     app.enableVersioning({
@@ -237,7 +238,7 @@ export default async function createServer(
         .setVersion("1.0")
         .addBearerAuth(
             { type: "http", scheme: "bearer", bearerFormat: "JWT" }, // Bearer config
-            "access-token" // Name of the security schema
+            "access-token", // Name of the security schema
         )
         .build();
     const document = SwaggerModule.createDocument(app, config);
@@ -266,7 +267,7 @@ export default async function createServer(
         logger.log("Socket.IO Redis adapter enabled");
     } else {
         logger.warn(
-            "Socket.IO using in-memory adapter — multi-instance deployments will not share socket state"
+            "Socket.IO using in-memory adapter — multi-instance deployments will not share socket state",
         );
     }
 

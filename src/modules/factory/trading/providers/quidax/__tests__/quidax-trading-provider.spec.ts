@@ -44,7 +44,9 @@ describe("QuidaxTradingProvider", () => {
     beforeEach(() => {
         quidaxService = makeQuidaxServiceMock();
         provider = new QuidaxTradingProvider(quidaxService as any);
-        jest.spyOn((provider as any).logger, "log").mockImplementation(() => undefined);
+        jest.spyOn((provider as any).logger, "log").mockImplementation(
+            () => undefined,
+        );
     });
 
     afterEach(() => {
@@ -89,13 +91,25 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.getUserWalletList.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: [{ currency: "btc", balance: "1", locked: "0.1", available_balance: "0.9" }],
+            data: [
+                {
+                    currency: "btc",
+                    balance: "1",
+                    locked: "0.1",
+                    available_balance: "0.9",
+                },
+            ],
         });
 
         quidaxService.getUserWallet.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { currency: "btc", balance: "2", locked: "0.2", available_balance: "1.8" },
+            data: {
+                currency: "btc",
+                balance: "2",
+                locked: "0.2",
+                available_balance: "1.8",
+            },
         });
 
         quidaxService.createPaymentAddress.mockResolvedValue({
@@ -125,7 +139,14 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.getPaymentAddressList.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: [{ id: "addr-2", address: "bc1yyy", currency: "btc", network: "BTC" }],
+            data: [
+                {
+                    id: "addr-2",
+                    address: "bc1yyy",
+                    currency: "btc",
+                    network: "BTC",
+                },
+            ],
         });
 
         quidaxService.verifyAddress.mockResolvedValue({
@@ -139,14 +160,29 @@ describe("QuidaxTradingProvider", () => {
             firstName: "Test",
             lastName: "User",
         });
-        const findResult = await provider.findSubAccountByEmail("find@example.com");
+        const findResult =
+            await provider.findSubAccountByEmail("find@example.com");
         const detailResult = await provider.getAccountDetail("sub-3");
         const walletList = await provider.getUserWalletList("sub-3");
         const wallet = await provider.getUserWallet("sub-3", "BTC");
-        const paymentAddress = await provider.createPaymentAddress({ userId: "sub-3", currency: "BTC", network: "BTC" });
-        const paymentAddressById = await provider.getPaymentAddressById("sub-3", "addr-1");
-        const paymentAddressList = await provider.getPaymentAddressList("sub-3", "BTC");
-        const verifyResult = await provider.verifyAddress({ currency: "BTC", address: "bc1xxx", network: "BTC" });
+        const paymentAddress = await provider.createPaymentAddress({
+            userId: "sub-3",
+            currency: "BTC",
+            network: "BTC",
+        });
+        const paymentAddressById = await provider.getPaymentAddressById(
+            "sub-3",
+            "addr-1",
+        );
+        const paymentAddressList = await provider.getPaymentAddressList(
+            "sub-3",
+            "BTC",
+        );
+        const verifyResult = await provider.verifyAddress({
+            currency: "BTC",
+            address: "bc1xxx",
+            network: "BTC",
+        });
 
         expect(createResult.data.reference).toBe("SN-123");
         expect(findResult?.reference).toBe("SN-456");
@@ -211,12 +247,22 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.confirmInstantSwap.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { id: "s1", from_currency: "btc", to_currency: "eth", status: "completed" },
+            data: {
+                id: "s1",
+                from_currency: "btc",
+                to_currency: "eth",
+                status: "completed",
+            },
         });
         quidaxService.getSwapTransaction.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { id: "s2", from_currency: "eth", to_currency: "btc", state: "pending" },
+            data: {
+                id: "s2",
+                from_currency: "eth",
+                to_currency: "btc",
+                state: "pending",
+            },
         });
         quidaxService.getSwapTransactionList.mockResolvedValue({
             status: "successful",
@@ -240,7 +286,12 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.cancelWithdrawerRequest.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { currency: "btc", amount: "1", fee: "0.001", fund_uid: "bc1xx" },
+            data: {
+                currency: "btc",
+                amount: "1",
+                fee: "0.001",
+                fund_uid: "bc1xx",
+            },
         });
         quidaxService.getWithdrawerDetail.mockResolvedValue({
             status: "successful",
@@ -279,19 +330,43 @@ describe("QuidaxTradingProvider", () => {
             volume: "2",
             amount: "2",
         } as any);
-        const cancelledOrder = await provider.cancelOrder({ userId: "u1", orderId: "o1" });
+        const cancelledOrder = await provider.cancelOrder({
+            userId: "u1",
+            orderId: "o1",
+        });
         const orderById = await provider.getOrderById("u1", "o2");
         const orderList = await provider.getOrderList("u1");
 
-        const swapQuote = await provider.createSwapQuote({ userId: "u1", fromCurrency: "BTC", toCurrency: "ETH", fromAmount: "1" } as any);
-        const swap = await provider.confirmSwap({ userId: "u1", quoteId: "q1" });
+        const swapQuote = await provider.createSwapQuote({
+            userId: "u1",
+            fromCurrency: "BTC",
+            toCurrency: "ETH",
+            fromAmount: "1",
+        } as any);
+        const swap = await provider.confirmSwap({
+            userId: "u1",
+            quoteId: "q1",
+        });
         const swapTx = await provider.getSwapTransaction("u1", "s2");
         const swaps = await provider.getSwapTransactionList("u1");
 
-        const withdrawal = await provider.createWithdrawal({ userId: "u1", currency: "BTC", amount: "1", address: "bc1xx", network: "BTC", reference: "r1" });
-        const cancelledWithdrawal = await provider.cancelWithdrawal({ userId: "u1", withdrawalId: "w1" });
+        const withdrawal = await provider.createWithdrawal({
+            userId: "u1",
+            currency: "BTC",
+            amount: "1",
+            address: "bc1xx",
+            network: "BTC",
+            reference: "r1",
+        });
+        const cancelledWithdrawal = await provider.cancelWithdrawal({
+            userId: "u1",
+            withdrawalId: "w1",
+        });
         const withdrawalById = await provider.getWithdrawalById("u1", "w2");
-        const withdrawalByRef = await provider.getWithdrawalByReference("u1", "r1");
+        const withdrawalByRef = await provider.getWithdrawalByReference(
+            "u1",
+            "r1",
+        );
         const withdrawals = await provider.getWithdrawalList("u1");
         const fees = await provider.getWithdrawalFees("u1", "BTC", "BTC");
 
@@ -335,7 +410,14 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.fetchDeposits.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: [{ id: "d1", currency: "btc", amount: "1", payment_address: { address: "bc1" } }],
+            data: [
+                {
+                    id: "d1",
+                    currency: "btc",
+                    amount: "1",
+                    payment_address: { address: "bc1" },
+                },
+            ],
         });
         quidaxService.fetchDeposit.mockResolvedValue({
             status: "successful",
@@ -347,13 +429,34 @@ describe("QuidaxTradingProvider", () => {
             status: "successful",
             message: "ok",
             data: {
-                btcngn: { ticker: { last: "100", buy: "99", sell: "101", vol: "10", high: "110", low: "90", change: "5" } },
+                btcngn: {
+                    ticker: {
+                        last: "100",
+                        buy: "99",
+                        sell: "101",
+                        vol: "10",
+                        high: "110",
+                        low: "90",
+                        change: "5",
+                    },
+                },
             },
         });
         quidaxService.getSingleMarketTicker.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { market: "ethngn", ticker: { last: "200", buy: "198", sell: "202", vol: "20", high: "210", low: "190", change: "4" } },
+            data: {
+                market: "ethngn",
+                ticker: {
+                    last: "200",
+                    buy: "198",
+                    sell: "202",
+                    vol: "20",
+                    high: "210",
+                    low: "190",
+                    change: "4",
+                },
+            },
         });
         quidaxService.getMarketList.mockResolvedValue({
             status: "successful",
@@ -374,7 +477,12 @@ describe("QuidaxTradingProvider", () => {
         quidaxService.getPurchaseQuoteForBuy.mockResolvedValue({
             status: "successful",
             message: "ok",
-            data: { crypto_amount: "0.02", fiat_amount: "1000", rate: "50000", fee: "5" },
+            data: {
+                crypto_amount: "0.02",
+                fiat_amount: "1000",
+                rate: "50000",
+                fee: "5",
+            },
         });
         quidaxService.getPurchaseQuoteForSell.mockResolvedValue({
             status: "successful",
@@ -382,7 +490,10 @@ describe("QuidaxTradingProvider", () => {
             data: { fiat_amount: "1200", rate: "60000", fee: "6" },
         });
 
-        const deposits = await provider.fetchDeposits({ userId: "u1", currency: "BTC" });
+        const deposits = await provider.fetchDeposits({
+            userId: "u1",
+            currency: "BTC",
+        });
         const deposit = await provider.fetchDeposit("u1", "d2");
         const tickers = await provider.getMarketTickers();
         const ticker = await provider.getSingleMarketTicker("ETHNGN");
@@ -390,8 +501,16 @@ describe("QuidaxTradingProvider", () => {
 
         const buyLimit = await provider.getPurchaseLimitForBuy("u1", "BTC");
         const sellLimit = await provider.getPurchaseLimitForSell("u1", "BTC");
-        const buyQuote = await provider.getPurchaseQuoteForBuy("u1", "BTC", "1000");
-        const sellQuote = await provider.getPurchaseQuoteForSell("u1", "BTC", "0.02");
+        const buyQuote = await provider.getPurchaseQuoteForBuy(
+            "u1",
+            "BTC",
+            "1000",
+        );
+        const sellQuote = await provider.getPurchaseQuoteForSell(
+            "u1",
+            "BTC",
+            "0.02",
+        );
 
         expect(deposits.data[0].address).toBe("bc1");
         expect(deposit.data.id).toBe("d2");
@@ -407,7 +526,8 @@ describe("QuidaxTradingProvider", () => {
     it("findSubAccountByEmail should return null when provider cannot find account", async () => {
         quidaxService.findSubAccountByEmail.mockResolvedValue(null);
 
-        const account = await provider.findSubAccountByEmail("none@example.com");
+        const account =
+            await provider.findSubAccountByEmail("none@example.com");
 
         expect(account).toBeNull();
     });

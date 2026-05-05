@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, LoggerService as NestLoggerService, Scope } from "@nestjs/common";
+import {
+    Injectable,
+    LoggerService as NestLoggerService,
+    Scope,
+} from "@nestjs/common";
 
 /**
  * Log levels in order of severity
@@ -42,7 +46,7 @@ export interface RequestContext {
 
 /**
  * StructuredLoggerService
- * 
+ *
  * Provides structured logging with:
  * - Correlation IDs for request tracing
  * - Consistent JSON log format
@@ -144,7 +148,11 @@ export class StructuredLoggerService implements NestLoggerService {
     /**
      * Log an error message
      */
-    error(message: string, trace?: string | Error, data?: Record<string, unknown>): void {
+    error(
+        message: string,
+        trace?: string | Error,
+        data?: Record<string, unknown>,
+    ): void {
         const errorInfo = this.extractErrorInfo(trace);
         this.writeLog(LogLevel.ERROR, message, data, errorInfo);
     }
@@ -168,7 +176,7 @@ export class StructuredLoggerService implements NestLoggerService {
             userId,
             startTime: Date.now(),
         });
-        
+
         this.log("Request started", {
             method,
             path,
@@ -182,8 +190,8 @@ export class StructuredLoggerService implements NestLoggerService {
      * Log request completion
      */
     logRequestEnd(statusCode: number, data?: Record<string, unknown>): void {
-        const duration = this.requestContext 
-            ? Date.now() - this.requestContext.startTime 
+        const duration = this.requestContext
+            ? Date.now() - this.requestContext.startTime
             : 0;
 
         this.log("Request completed", {
@@ -201,7 +209,7 @@ export class StructuredLoggerService implements NestLoggerService {
     async logOperation<T>(
         operationName: string,
         operation: () => Promise<T>,
-        data?: Record<string, unknown>
+        data?: Record<string, unknown>,
     ): Promise<T> {
         const startTime = Date.now();
         this.log(`${operationName} started`, data);
@@ -213,7 +221,10 @@ export class StructuredLoggerService implements NestLoggerService {
             return result;
         } catch (error) {
             const duration = Date.now() - startTime;
-            this.error(`${operationName} failed`, error as Error, { ...data, duration });
+            this.error(`${operationName} failed`, error as Error, {
+                ...data,
+                duration,
+            });
             throw error;
         }
     }
@@ -225,7 +236,7 @@ export class StructuredLoggerService implements NestLoggerService {
         level: LogLevel,
         message: string,
         data?: Record<string, unknown>,
-        error?: LogEntry["error"]
+        error?: LogEntry["error"],
     ): LogEntry {
         const entry: LogEntry = {
             timestamp: new Date().toISOString(),
@@ -262,7 +273,7 @@ export class StructuredLoggerService implements NestLoggerService {
         level: LogLevel,
         message: string,
         data?: Record<string, unknown>,
-        error?: LogEntry["error"]
+        error?: LogEntry["error"],
     ): void {
         const entry = this.createLogEntry(level, message, data, error);
         const output = JSON.stringify(entry);
@@ -286,7 +297,9 @@ export class StructuredLoggerService implements NestLoggerService {
     /**
      * Extract error information from various error types
      */
-    private extractErrorInfo(trace?: string | Error): LogEntry["error"] | undefined {
+    private extractErrorInfo(
+        trace?: string | Error,
+    ): LogEntry["error"] | undefined {
         if (!trace) return undefined;
 
         if (typeof trace === "string") {

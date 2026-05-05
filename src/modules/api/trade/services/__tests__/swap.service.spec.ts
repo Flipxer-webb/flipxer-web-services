@@ -3,7 +3,9 @@ import { Test, TestingModule } from "@nestjs/testing";
 jest.mock("@/modules/api/user", () => ({
     User: () => () => {},
     ClientData: () => () => {},
-    UserModule: class { readonly __stub = true },
+    UserModule: class {
+        readonly __stub = true;
+    },
     AccountDeletedException: class extends Error {},
     UserNotFoundException: class extends Error {},
     __esModule: true,
@@ -64,7 +66,10 @@ const mockUser = {
 describe("SwapService", () => {
     let service: SwapService;
     let prisma: ReturnType<typeof makePrisma>;
-    let sellOrderService: { calculateSellQuote: jest.Mock; executeInternalSell: jest.Mock };
+    let sellOrderService: {
+        calculateSellQuote: jest.Mock;
+        executeInternalSell: jest.Mock;
+    };
     let buyOrderService: { executeInternalBuy: jest.Mock };
     let redisCache: { set: jest.Mock; get: jest.Mock; getDel: jest.Mock };
     let rateService: { getAssetRate: jest.Mock };
@@ -90,7 +95,9 @@ describe("SwapService", () => {
         const mockTransaction = {
             validateTransaction: jest.fn().mockResolvedValue(undefined),
         };
-        const mockWallet = { syncWallet: jest.fn().mockResolvedValue(undefined) };
+        const mockWallet = {
+            syncWallet: jest.fn().mockResolvedValue(undefined),
+        };
         const mockWsGateway = {
             notifyTransactionUpdate: jest.fn(),
             notifyWalletUpdate: jest.fn(),
@@ -98,12 +105,22 @@ describe("SwapService", () => {
         const mockSlack = { sendAlert: jest.fn().mockResolvedValue(undefined) };
         const mockWalletMgmt = { invalidateWalletCache: jest.fn() };
         const mockRate = {
-            getAssetRate: jest.fn().mockResolvedValue({ buyRate: 70000000, sellRate: 69000000 }),
+            getAssetRate: jest
+                .fn()
+                .mockResolvedValue({ buyRate: 70000000, sellRate: 69000000 }),
         };
-        const mockNotification = { notify: jest.fn().mockResolvedValue(undefined) };
-        const mockFailedRollback = { addToQueue: jest.fn().mockResolvedValue("rb-1") };
+        const mockNotification = {
+            notify: jest.fn().mockResolvedValue(undefined),
+        };
+        const mockFailedRollback = {
+            addToQueue: jest.fn().mockResolvedValue("rb-1"),
+        };
         const mockLock = {
-            withLock: jest.fn().mockImplementation(async (_k: string, fn: () => Promise<any>) => fn()),
+            withLock: jest
+                .fn()
+                .mockImplementation(
+                    async (_k: string, fn: () => Promise<any>) => fn(),
+                ),
         };
         const mockTradeHelpers = {
             ensureSupportedTradeAsset: jest.fn((asset: string) =>
@@ -126,7 +143,10 @@ describe("SwapService", () => {
                 { provide: WalletManagementService, useValue: mockWalletMgmt },
                 { provide: RateService, useValue: mockRate },
                 { provide: NotificationDispatcher, useValue: mockNotification },
-                { provide: FailedRollbackQueueService, useValue: mockFailedRollback },
+                {
+                    provide: FailedRollbackQueueService,
+                    useValue: mockFailedRollback,
+                },
                 { provide: DistributedLockService, useValue: mockLock },
                 { provide: TradeHelpersService, useValue: mockTradeHelpers },
             ],
@@ -241,7 +261,10 @@ describe("SwapService", () => {
             sellOrderService.calculateSellQuote.mockResolvedValue({
                 totalToReceiveInFiat: 7000000, // 0.1 BTC * 70M
             });
-            rateService.getAssetRate.mockResolvedValue({ buyRate: 4000000, sellRate: 3900000 });
+            rateService.getAssetRate.mockResolvedValue({
+                buyRate: 4000000,
+                sellRate: 3900000,
+            });
 
             const result = await service.createInstantSwap(mockUser, {
                 from_currency: "BTC",
@@ -258,7 +281,10 @@ describe("SwapService", () => {
 
     describe("refreshInstantSwap", () => {
         it("should delegate to createInstantSwap", async () => {
-            (prisma as any).swapPair.findUnique.mockResolvedValue({ isActive: true, rate: 15 });
+            (prisma as any).swapPair.findUnique.mockResolvedValue({
+                isActive: true,
+                rate: 15,
+            });
 
             const result = await service.refreshInstantSwap(mockUser, {
                 from_currency: "BTC",
@@ -284,8 +310,12 @@ describe("SwapService", () => {
         });
 
         await expect(
-            service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
-        ).rejects.toThrow("Swap is only available to USDT. Please contact support for other pairs");
+            service.confirmInstantSwapQuote(mockUser, {
+                quotationId: "quote-1",
+            } as any),
+        ).rejects.toThrow(
+            "Swap is only available to USDT. Please contact support for other pairs",
+        );
     });
 
     // ── confirmInstantSwapQuote ──────────────────────────────
@@ -307,7 +337,9 @@ describe("SwapService", () => {
             const user = { ...mockUser, cryptoSubAccountId: null };
 
             await expect(
-                service.confirmInstantSwapQuote(user, { quotationId: "q-1" } as any),
+                service.confirmInstantSwapQuote(user, {
+                    quotationId: "q-1",
+                } as any),
             ).rejects.toThrow("Please complete your account setup");
         });
 
@@ -315,7 +347,9 @@ describe("SwapService", () => {
             redisCache.get.mockResolvedValue(null);
 
             await expect(
-                service.confirmInstantSwapQuote(mockUser, { quotationId: "q-1" } as any),
+                service.confirmInstantSwapQuote(mockUser, {
+                    quotationId: "q-1",
+                } as any),
             ).rejects.toThrow();
         });
 
@@ -326,10 +360,14 @@ describe("SwapService", () => {
             );
 
             await expect(
-                service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
+                service.confirmInstantSwapQuote(mockUser, {
+                    quotationId: "quote-1",
+                } as any),
             ).rejects.toThrow("Minimum swap amount is 10 USDT equivalent.");
 
-            expect(tradeHelpers.validateMinimumAmountInUSDT).toHaveBeenCalledWith(
+            expect(
+                tradeHelpers.validateMinimumAmountInUSDT,
+            ).toHaveBeenCalledWith(
                 quoteData.from_amount,
                 quoteData.from_currency,
                 MIN_SWAP_AMOUNT_USDT,
@@ -342,7 +380,10 @@ describe("SwapService", () => {
         it("should return existing order for duplicate quotation", async () => {
             redisCache.get.mockResolvedValue(quoteData);
             redisCache.getDel.mockResolvedValue(quoteData);
-            prisma.order.findFirst.mockResolvedValue({ id: 99, transactionId: "TX-99" });
+            prisma.order.findFirst.mockResolvedValue({
+                id: 99,
+                transactionId: "TX-99",
+            });
 
             const result = await service.confirmInstantSwapQuote(mockUser, {
                 quotationId: "quote-1",
@@ -382,7 +423,9 @@ describe("SwapService", () => {
             expect(buyOrderService.executeInternalBuy).toHaveBeenCalled();
             expect(prisma.order.update).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ status: OrderStatus.completed }),
+                    data: expect.objectContaining({
+                        status: OrderStatus.completed,
+                    }),
                 }),
             );
             expect(result.message).toContain("confirmed");
@@ -403,18 +446,24 @@ describe("SwapService", () => {
                 updatedAt: new Date(),
             });
             // Sell succeeds, buy fails
-            buyOrderService.executeInternalBuy.mockRejectedValue(new Error("Buy failed"));
+            buyOrderService.executeInternalBuy.mockRejectedValue(
+                new Error("Buy failed"),
+            );
             prisma.order.update.mockResolvedValue({});
 
             await expect(
-                service.confirmInstantSwapQuote(mockUser, { quotationId: "quote-1" } as any),
+                service.confirmInstantSwapQuote(mockUser, {
+                    quotationId: "quote-1",
+                } as any),
             ).rejects.toThrow("Swap failed");
 
             // Rollback buy was called (credit back source currency)
             expect(buyOrderService.executeInternalBuy).toHaveBeenCalledTimes(2); // buy leg + rollback
             expect(prisma.order.update).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    data: expect.objectContaining({ status: OrderStatus.failed }),
+                    data: expect.objectContaining({
+                        status: OrderStatus.failed,
+                    }),
                 }),
             );
         });
@@ -426,7 +475,9 @@ describe("SwapService", () => {
         it("should throw when order not found", async () => {
             prisma.order.findUnique.mockResolvedValue(null);
 
-            await expect(service.retryPendingSwap(999)).rejects.toThrow("not found");
+            await expect(service.retryPendingSwap(999)).rejects.toThrow(
+                "not found",
+            );
         });
 
         it("should throw when not a swap order", async () => {
@@ -436,7 +487,9 @@ describe("SwapService", () => {
                 status: OrderStatus.pending,
             });
 
-            await expect(service.retryPendingSwap(1)).rejects.toThrow("Not a Swap");
+            await expect(service.retryPendingSwap(1)).rejects.toThrow(
+                "Not a Swap",
+            );
         });
 
         it("should throw when order not in retryable state", async () => {
@@ -446,7 +499,9 @@ describe("SwapService", () => {
                 status: OrderStatus.completed,
             });
 
-            await expect(service.retryPendingSwap(1)).rejects.toThrow("not in PENDING or FAILED");
+            await expect(service.retryPendingSwap(1)).rejects.toThrow(
+                "not in PENDING or FAILED",
+            );
         });
 
         it("should skip if buy leg already completed", async () => {
@@ -483,7 +538,11 @@ describe("SwapService", () => {
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 })
-                .mockResolvedValueOnce({ id: 1, email: "test@flipxer.com", firstName: "Test" }); // user lookup
+                .mockResolvedValueOnce({
+                    id: 1,
+                    email: "test@flipxer.com",
+                    firstName: "Test",
+                }); // user lookup
             prisma.ledgerEntry.findFirst.mockResolvedValue(null);
             prisma.user.findUnique.mockResolvedValue(mockUser);
             prisma.order.update.mockResolvedValue({});
