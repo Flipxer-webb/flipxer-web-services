@@ -179,9 +179,7 @@ export class IndividualKycStageService {
         await this.persistPreviewSnapshot({
             userId: user.id,
             stage: KycStage.IDENTITY_DOCUMENT,
-            method: dto.documentType
-                ? this.mapDocumentTypeToMethod(dto.documentType)
-                : KycMethod.OTHER,
+            method: this.mapDocumentTypeToMethod(dto.documentType),
             signature: this.buildIdentityPreviewSignature(dto),
             providerStatus,
             reasonCode,
@@ -550,37 +548,24 @@ export class IndividualKycStageService {
                 data: this.buildSubmitResponse(attempt),
             });
         } catch (error) {
-            const attempt = await this.tryGetCurrentStageAttempt(
-                user.id,
-                KycStage.GOVERNMENT_ID,
-                method,
-            );
-            if (!attempt) {
-                throw error;
-            }
-
-            const message =
-                error instanceof Error && error.message
-                    ? error.message
-                    : fallbackMessage;
-
-            return buildResponse({
-                message,
-                data: this.buildSubmitResponse(attempt),
-            });
+            throw this.toGovernmentIdSubmissionError(error, fallbackMessage);
         }
     }
 
-    private async tryGetCurrentStageAttempt(
-        userId: number,
-        stage: KycStage,
-        method?: KycMethod,
-    ): Promise<KycStageAttempt | null> {
-        try {
-            return await this.getCurrentStageAttempt(userId, stage, method);
-        } catch {
-            return null;
+    private toGovernmentIdSubmissionError(
+        error: unknown,
+        fallbackMessage: string,
+    ): HttpException {
+        if (error instanceof HttpException) {
+            return error;
         }
+
+        const message =
+            error instanceof Error && error.message
+                ? error.message
+                : fallbackMessage;
+
+        return new HttpException(message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     private async getCurrentStageAttempt(

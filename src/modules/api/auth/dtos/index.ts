@@ -467,15 +467,14 @@ export class DocumentVerificationBase64Dto {
  */
 export class DocumentPreviewDto {
     @ApiProperty({
-        required: false,
         enum: DocumentType,
         enumName: "DocumentType",
         description:
             "Selected document type/path to validate the uploaded document against",
     })
-    @IsOptional()
+    @IsNotEmpty()
     @IsEnum(DocumentType)
-    documentType?: DocumentType;
+    documentType: DocumentType;
 
     @ApiProperty({
         description: "Base64-encoded front image of the document",

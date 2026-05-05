@@ -176,12 +176,14 @@ describe("IndividualKycStageService", () => {
         });
 
         const result = await service.previewIdentityDocument(baseUser, {
+            documentType: DocumentType.INTERNATIONAL_PASSPORT,
             imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
         } as any);
 
         expect(authService.previewDocumentWithProviderLog).toHaveBeenCalledWith(
             baseUser,
             {
+                documentType: DocumentType.INTERNATIONAL_PASSPORT,
                 imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
             },
         );
@@ -210,6 +212,7 @@ describe("IndividualKycStageService", () => {
             expect.objectContaining({
                 data: expect.objectContaining({
                     stage: KycStage.IDENTITY_DOCUMENT,
+                    method: KycMethod.INTERNATIONAL_PASSPORT,
                     status: KycAttemptStatus.DRAFT,
                     isCurrent: false,
                     attemptNo: 0,
@@ -253,6 +256,7 @@ describe("IndividualKycStageService", () => {
         });
 
         const result = await service.previewIdentityDocument(baseUser, {
+            documentType: DocumentType.INTERNATIONAL_PASSPORT,
             imageFrontBase64: "data:image/jpeg;base64,ZmFrZQ==",
         } as any);
 
@@ -648,49 +652,22 @@ describe("IndividualKycStageService", () => {
         );
     });
 
-    it("returns a staged rejection payload when BVN verification creates a rejected legacy record", async () => {
-        const submittedAt = new Date("2026-04-20T10:00:00.000Z");
-        const createdAttempt = {
-            id: 401,
-            userId: baseUser.id,
-            stage: KycStage.GOVERNMENT_ID,
-            method: KycMethod.BVN,
-            attemptNo: 1,
-            isCurrent: true,
-            status: KycAttemptStatus.REJECTED,
-            providerName: KycProviderName.DOJAH,
-            providerStatus: KycProviderStatus.FAILED,
-            decisionMode: KycDecisionMode.AUTO,
-            providerRef: "dojah-bvn-41",
-            reasonCode: "DOB_MATCHED_BUT_NAMES_MISMATCHED_MANUAL_CHECK_FAILED",
-            reasonMessage:
-                "DOB matched but names mismatched. Manual check failed.",
-            extractedFields: { identifierType: KycMethod.BVN },
-            comparisonSummary: { dobMatches: true, nameMatches: false },
-            evidenceSummary: { identifierType: KycMethod.BVN, verified: false },
-            reviewerId: null,
-            reviewNote:
-                "DOB matched but names mismatched. Manual check failed.",
-            submittedAt,
-            reviewedAt: submittedAt,
-            escalatedAt: null,
-            version: 2,
-        } as any;
-
-        authService.bvnVerification.mockRejectedValue(
-            new HttpException(
-                "Incorrect first name, last name or date of birth",
-                HttpStatus.BAD_REQUEST,
-            ),
+    it("propagates failed BVN submissions instead of returning a stale attempt", async () => {
+        const error = new HttpException(
+            "Incorrect first name, last name or date of birth",
+            HttpStatus.BAD_REQUEST,
         );
-        prisma.kycStageAttempt.findFirst.mockResolvedValue(createdAttempt);
 
-        const result = await service.submitGovernmentIdBvn(baseUser, {
-            firstName: "Ada",
-            lastName: "Lovelace",
-            dateOfBirth: "1815-12-10",
-            bvn: "22222222222",
-        });
+        authService.bvnVerification.mockRejectedValue(error);
+
+        await expect(
+            service.submitGovernmentIdBvn(baseUser, {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                dateOfBirth: "1815-12-10",
+                bvn: "22222222222",
+            }),
+        ).rejects.toBe(error);
 
         expect(authService.bvnVerification).toHaveBeenCalledWith(baseUser, {
             firstName: "Ada",
@@ -698,19 +675,7 @@ describe("IndividualKycStageService", () => {
             dateOfBirth: "1815-12-10",
             bvn: "22222222222",
         });
-        expect(result.data).toEqual(
-            expect.objectContaining({
-                attemptId: 401,
-                stage: KycStage.GOVERNMENT_ID,
-                status: KycAttemptStatus.REJECTED,
-                providerStatus: KycProviderStatus.FAILED,
-                outcome: "REJECTED_HARD_STOP",
-                nextAction: expect.objectContaining({
-                    type: "RESUBMIT",
-                    stage: KycStage.GOVERNMENT_ID,
-                }),
-            }),
-        );
+        expect(prisma.kycStageAttempt.findFirst).not.toHaveBeenCalled();
     });
 
     it("updates an existing identity attempt and rebuilds evidence assets on submit", async () => {
