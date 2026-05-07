@@ -11,6 +11,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { FincraWebhookGuard } from '../../auth/guard';
 import { BankService } from '../services';
 import { PrismaService } from '@/modules/core/prisma/services';
+import { TransactionStatus } from '@prisma/client';
 import { PaymentGatewayWebhookPayloadDto } from '../dtos/payment-webhook.dto';
 import { PaymentWebhookAdapterService } from '@/modules/factory/bank/services/payment-webhook-adapter.service';
 import { BuyOrderService } from '../../trade/services/buy-order.service';
@@ -19,6 +20,7 @@ import {
     BuyOrderWebhookPayment,
     handleBuyOrderWebhookPayment,
 } from '../services/buy-order-webhook-payment.util';
+import { BuyRefundReconciliationService } from '../../trade/services/buy-refund-reconciliation.service';
 
 /**
  * Fincra Webhook Controller
@@ -44,6 +46,7 @@ export class FincraWebhookController {
         private readonly paymentWebhookAdapterService: PaymentWebhookAdapterService,
         private readonly buyOrderService: BuyOrderService,
         private readonly slackWebhookService: SlackWebhookService,
+        private readonly buyRefundReconciliationService: BuyRefundReconciliationService,
     ) { }
 
     @Post('fincra')
@@ -93,10 +96,17 @@ export class FincraWebhookController {
         // Store provider reference on the payment record for reconciliation
         try {
             if (providerReference !== reference) {
-                await this.prisma.payment.updateMany({
+                const matchingPayments = await this.prisma.payment.findMany({
                     where: { reference },
-                    data: { externalReference: providerReference },
+                    select: { id: true },
                 });
+
+                for (const payment of matchingPayments) {
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: { externalReference: providerReference },
+                    });
+                }
             }
         } catch (error) {
             this.logger.error(`Failed to store Fincra externalReference: ${error.message}`);
@@ -119,7 +129,7 @@ export class FincraWebhookController {
         }
 
         if (event.kind === 'payout') {
-            await this.processPayout(reference, event.status);
+            await this.processPayout(reference, event);
             return;
         }
 
@@ -141,10 +151,7 @@ export class FincraWebhookController {
                     event,
                     reference,
                     provider: 'fincra',
-                    prisma: this.prisma,
                     buyOrderService: this.buyOrderService,
-                    slackWebhookService: this.slackWebhookService,
-                    logger: this.logger,
                 });
                 this.logger.log(`Successfully processed buy-order payment for reference: ${reference}`);
                 return;
@@ -167,9 +174,22 @@ export class FincraWebhookController {
         }
     }
 
-    private async processPayout(reference: string, status: ReturnType<PaymentWebhookAdapterService["normalizeFincraWebhook"]>["status"]) {
+    private async processPayout(reference: string, event: ReturnType<PaymentWebhookAdapterService["normalizeFincraWebhook"]>) {
+        const status = event.status;
+
         if (status === 'successful') {
             this.logger.log(`Payout successful for reference: ${reference}`);
+            const reconciled = await this.buyRefundReconciliationService.reconcileRefundPayout({
+                provider: 'fincra',
+                reference,
+                status: TransactionStatus.SUCCESS,
+                externalReference: event.providerReference,
+            });
+
+            if (reconciled) {
+                return;
+            }
+
             await this.bankService.processAssetValueTransferToBankHandler({
                 paymentReference: reference,
                 transferToBankStatus: 'SUCCESS' as any,
@@ -179,6 +199,17 @@ export class FincraWebhookController {
 
         if (status === 'failed') {
             this.logger.log(`Payout failed for reference: ${reference}`);
+            const reconciled = await this.buyRefundReconciliationService.reconcileRefundPayout({
+                provider: 'fincra',
+                reference,
+                status: TransactionStatus.FAILED,
+                externalReference: event.providerReference,
+            });
+
+            if (reconciled) {
+                return;
+            }
+
             await this.bankService.processAssetValueTransferToBankHandler({
                 paymentReference: reference,
                 transferToBankStatus: 'FAILED' as any,

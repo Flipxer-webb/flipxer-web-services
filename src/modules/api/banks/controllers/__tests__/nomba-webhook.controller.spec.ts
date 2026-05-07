@@ -46,6 +46,7 @@ import {
     TransactionStatus,
 } from '@prisma/client';
 import { SellPayoutReconciliationService } from '../../../trade/services/sell-payout-reconciliation.service';
+import { BuyRefundReconciliationService } from '../../../trade/services/buy-refund-reconciliation.service';
 
 // ─── mock factories ─────────────────────────────────────────
 
@@ -80,7 +81,16 @@ function mockPrisma() {
 }
 
 function mockBuyOrderService() {
-    return { fulfillBuyOrder: jest.fn() };
+    const fulfillBuyOrder = jest.fn();
+
+    return {
+        fulfillBuyOrder,
+        handleWebhookBuyOrderPayment: jest.fn().mockImplementation(
+            async (options: { reference: string }) => {
+                await fulfillBuyOrder(options.reference);
+            },
+        ),
+    };
 }
 
 function mockSlackWebhookService() {
@@ -91,6 +101,13 @@ function mockSellPayoutReconciliationService() {
     return {
         reconcileSellPayoutState: jest.fn().mockResolvedValue(null),
         executeSellPayoutSideEffects: jest.fn().mockResolvedValue(undefined),
+    };
+}
+
+function mockBuyRefundReconciliationService() {
+    return {
+        reconcileRefundPayoutState: jest.fn().mockResolvedValue(null),
+        executeRefundSideEffects: jest.fn().mockResolvedValue(undefined),
     };
 }
 
@@ -192,6 +209,7 @@ describe('NormalizedPaymentWebhookController', () => {
     let buyOrderService: ReturnType<typeof mockBuyOrderService>;
     let slackService: ReturnType<typeof mockSlackWebhookService>;
     let sellPayoutReconciliationService: ReturnType<typeof mockSellPayoutReconciliationService>;
+    let buyRefundReconciliationService: ReturnType<typeof mockBuyRefundReconciliationService>;
 
     /** Representative webhook headers passed through after guard verification */
     const sigHeaders = { 'nomba-signature': 'test-sig', 'nomba-timestamp': '1234567890' };
@@ -201,6 +219,7 @@ describe('NormalizedPaymentWebhookController', () => {
         buyOrderService = mockBuyOrderService();
         slackService = mockSlackWebhookService();
         sellPayoutReconciliationService = mockSellPayoutReconciliationService();
+        buyRefundReconciliationService = mockBuyRefundReconciliationService();
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [NombaWebhookController],
@@ -210,6 +229,7 @@ describe('NormalizedPaymentWebhookController', () => {
                 { provide: SlackWebhookService, useValue: slackService },
                 PaymentWebhookAdapterService,
                 { provide: SellPayoutReconciliationService, useValue: sellPayoutReconciliationService },
+                { provide: BuyRefundReconciliationService, useValue: buyRefundReconciliationService },
             ],
         }).compile();
 
@@ -437,13 +457,15 @@ describe('NormalizedPaymentWebhookController', () => {
 
         it('should map transfer.failed to payment_failed', async () => {
             const ref = 'fail-ref';
-            prisma.payment.findMany.mockResolvedValue([]);
-            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            prisma.payment.findMany.mockResolvedValue([
+                { id: 53, orderId: null, userId: 8, totalAmount: 500 },
+            ]);
+            prisma.payment.update.mockResolvedValue({ id: 53 });
 
             await controller.handleWebhook(transferFailed(ref), sigHeaders);
 
-            expect(prisma.payment.updateMany).toHaveBeenCalledWith({
-                where: { reference: ref },
+            expect(prisma.payment.update).toHaveBeenCalledWith({
+                where: { id: 53 },
                 data: {
                     status: TransactionStatus.FAILED,
                     paymentStatus: TransactionStatus.FAILED,
@@ -504,17 +526,17 @@ describe('NormalizedPaymentWebhookController', () => {
             // User sent 800 but expected 1000 (below 1% tolerance)
             await controller.handleWebhook(vaCredit(ref, 800), sigHeaders);
 
-            expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
-            expect(slackService.sendWebhookFailureAlert).toHaveBeenCalledWith(
-                'nomba',
-                ref,
-                expect.stringContaining('Underpayment'),
+            expect(buyOrderService.handleWebhookBuyOrderPayment).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    orderId: 302,
-                    expectedAmount: 1000,
-                    receivedAmount: 800,
+                    payment,
+                    reference: ref,
+                    provider: 'nomba',
+                    event: expect.objectContaining({
+                        amount: 800,
+                    }),
                 }),
             );
+            expect(slackService.sendWebhookFailureAlert).not.toHaveBeenCalled();
         });
 
         it('should persist sender details from data.customer on underpayment', async () => {
@@ -525,12 +547,13 @@ describe('NormalizedPaymentWebhookController', () => {
             // payload with data.customer (real Nomba shape)
             await controller.handleWebhook(vaPaymentSuccess(ref, 2000), sigHeaders);
 
-            expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
-            expect(prisma.payment.update).toHaveBeenCalledWith(
+            expect(buyOrderService.handleWebhookBuyOrderPayment).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    where: { id: 40 },
-                    data: expect.objectContaining({
-                        receivedAmount: 2000,
+                    payment,
+                    reference: ref,
+                    provider: 'nomba',
+                    event: expect.objectContaining({
+                        amount: 2000,
                         senderAccountNumber: '81689XXX',
                         senderAccountName: 'JOHN GRASS',
                         senderBankName: 'Paycom (Opay)',
@@ -555,17 +578,18 @@ describe('NormalizedPaymentWebhookController', () => {
             const ref = 'buy-prov-ref';
             const payment = { id: 36, orderId: 360, totalAmount: 1000, reference: ref, userId: 9 };
             prisma.payment.findFirst.mockResolvedValue(payment);
-            prisma.payment.update.mockResolvedValue(payment);
             buyOrderService.fulfillBuyOrder.mockResolvedValue(undefined);
 
             // vaPaymentSuccess includes a transactionId as the provider reference
             await controller.handleWebhook(vaPaymentSuccess(ref, 1000), sigHeaders);
 
-            expect(prisma.payment.update).toHaveBeenCalledWith(
+            expect(buyOrderService.handleWebhookBuyOrderPayment).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    where: { id: 36 },
-                    data: expect.objectContaining({
-                        externalReference: expect.any(String),
+                    payment,
+                    reference: ref,
+                    provider: 'nomba',
+                    event: expect.objectContaining({
+                        providerReference: expect.any(String),
                     }),
                 }),
             );
@@ -659,7 +683,7 @@ describe('NormalizedPaymentWebhookController', () => {
             );
 
             expect(result).toEqual({ success: true, message: 'Webhook processed' });
-            expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+            expect(prisma.payment.update).not.toHaveBeenCalled();
         });
 
         it('should delegate transfer.successful SELL payouts to the shared reconciler', async () => {
@@ -683,6 +707,15 @@ describe('NormalizedPaymentWebhookController', () => {
                     paymentStatus: TransactionStatus.SUCCESS,
                 }),
             });
+            expect(buyRefundReconciliationService.reconcileRefundPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                {
+                    provider: 'nomba',
+                    reference: ref,
+                    status: TransactionStatus.SUCCESS,
+                    externalReference: 'tid-1',
+                },
+            );
             expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
                 expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
                 {
@@ -701,6 +734,27 @@ describe('NormalizedPaymentWebhookController', () => {
             );
         });
 
+        it('should stop at refund reconciliation when transfer.successful matches a refund payout', async () => {
+            const ref = 'refund-success-ref';
+            prisma.payment.findFirst.mockResolvedValue({ id: 72, orderId: null, reference: ref });
+            prisma.payment.update.mockResolvedValue({ id: 72, orderId: null, reference: ref });
+            buyRefundReconciliationService.reconcileRefundPayoutState.mockResolvedValue({
+                provider: 'nomba',
+                status: TransactionStatus.SUCCESS,
+                attempt: { reference: ref, order: { id: 501 } },
+            });
+
+            await controller.handleWebhook(transferCompleted(ref), sigHeaders);
+
+            expect(buyRefundReconciliationService.executeRefundSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: 'nomba',
+                    status: TransactionStatus.SUCCESS,
+                }),
+            );
+            expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
+        });
+
         it('should stop after updating the payment when transfer.successful has no linked order', async () => {
             const ref = 'sell-success-no-order-ref';
             prisma.payment.findFirst.mockResolvedValue({ id: 74, orderId: null, reference: ref });
@@ -710,12 +764,13 @@ describe('NormalizedPaymentWebhookController', () => {
 
             expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
             expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).not.toHaveBeenCalled();
+            expect(buyRefundReconciliationService.reconcileRefundPayoutState).toHaveBeenCalled();
         });
 
         it('should delegate transfer.failed SELL payouts to the shared reconciler', async () => {
             const ref = 'sell-failed-ref';
             prisma.payment.findMany.mockResolvedValue([{ id: 71, orderId: 9001, userId: 16, totalAmount: 22000 }]);
-            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            prisma.payment.update.mockResolvedValue({ id: 71, orderId: 9001, reference: ref });
             sellPayoutReconciliationService.reconcileSellPayoutState.mockResolvedValue({
                 order: { id: 9001 },
                 provider: 'nomba',
@@ -726,13 +781,22 @@ describe('NormalizedPaymentWebhookController', () => {
             await controller.handleWebhook(transferFailed(ref), sigHeaders);
 
             expect(prisma.$transaction).toHaveBeenCalled();
-            expect(prisma.payment.updateMany).toHaveBeenCalledWith({
-                where: { reference: ref },
+            expect(prisma.payment.update).toHaveBeenCalledWith({
+                where: { id: 71 },
                 data: {
                     status: TransactionStatus.FAILED,
                     paymentStatus: TransactionStatus.FAILED,
                 },
             });
+            expect(buyRefundReconciliationService.reconcileRefundPayoutState).toHaveBeenCalledWith(
+                expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
+                {
+                    provider: 'nomba',
+                    reference: ref,
+                    status: TransactionStatus.FAILED,
+                    externalReference: 'tid-2',
+                },
+            );
             expect(sellPayoutReconciliationService.reconcileSellPayoutState).toHaveBeenCalledWith(
                 expect.objectContaining({ payment: prisma.payment, order: prisma.order }),
                 {
@@ -751,15 +815,36 @@ describe('NormalizedPaymentWebhookController', () => {
             );
         });
 
+        it('should execute refund side effects when transfer.failed matches a refund payout', async () => {
+            const ref = 'refund-failed-ref';
+            prisma.payment.findMany.mockResolvedValue([{ id: 76, orderId: null, userId: 16, totalAmount: 22000 }]);
+            prisma.payment.update.mockResolvedValue({ id: 76, orderId: null, reference: ref });
+            buyRefundReconciliationService.reconcileRefundPayoutState.mockResolvedValue({
+                provider: 'nomba',
+                status: TransactionStatus.FAILED,
+                attempt: { reference: ref, order: { id: 502 } },
+            });
+
+            await controller.handleWebhook(transferFailed(ref), sigHeaders);
+
+            expect(buyRefundReconciliationService.executeRefundSideEffects).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: 'nomba',
+                    status: TransactionStatus.FAILED,
+                }),
+            );
+        });
+
         it('should skip payout reconciliation when transfer.failed has no linked SELL order', async () => {
             const ref = 'sell-failure-no-order-ref';
             prisma.payment.findMany.mockResolvedValue([{ id: 77, orderId: null, userId: 16, totalAmount: 22000 }]);
-            prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+            prisma.payment.update.mockResolvedValue({ id: 77, orderId: null, reference: ref });
 
             await controller.handleWebhook(transferFailed(ref), sigHeaders);
 
             expect(sellPayoutReconciliationService.reconcileSellPayoutState).not.toHaveBeenCalled();
             expect(sellPayoutReconciliationService.executeSellPayoutSideEffects).not.toHaveBeenCalled();
+            expect(buyRefundReconciliationService.reconcileRefundPayoutState).toHaveBeenCalled();
         });
     });
 });

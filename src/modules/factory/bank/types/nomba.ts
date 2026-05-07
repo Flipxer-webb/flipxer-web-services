@@ -32,6 +32,21 @@ export interface NombaInitializeTransferOptions {
     narration?: string;
 }
 
+export interface NombaInitializeRefundTransferOptions {
+    userId: number;
+    orderId: number;
+    refundAttemptId: number;
+    amount: number;
+    reference: string;
+    accountNumber: string;
+    accountName?: string | null;
+    bankCode: string;
+    bankName?: string | null;
+    senderName?: string;
+    senderEmail?: string;
+    narration?: string;
+}
+
 export interface NombaVirtualAccountOptions {
     userId: number;
     accountRef: string;
@@ -50,7 +65,24 @@ export namespace TNomba {
             options?: Partial<NombaVirtualAccountOptions>
         ): Promise<any>;
         initializeTransfer(options: NombaInitializeTransferOptions): Promise<void>;
-        verifyTransferStatus(reference: string): Promise<{
+        initializeRefundTransfer(options: NombaInitializeRefundTransferOptions): Promise<{
+            paymentId: number;
+            externalReference?: string | null;
+            providerReference?: string | null;
+        }>;
+        verifyTransferStatus(
+            reference: string,
+            externalReference?: string | null,
+            providerReference?: string | null,
+        ): Promise<{
+            status: "success" | "failed" | "pending";
+            data: any;
+        }>;
+        verifyRefundTransferStatus(
+            reference: string,
+            externalReference?: string | null,
+            providerReference?: string | null,
+        ): Promise<{
             status: "success" | "failed" | "pending";
             data: any;
         }>;

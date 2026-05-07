@@ -13,6 +13,9 @@ import {
     SellPayoutReconciliationService,
     SellPayoutStateTransition,
 } from "../../trade/services/sell-payout-reconciliation.service";
+import {
+    BuyRefundReconciliationService,
+} from "../../trade/services/buy-refund-reconciliation.service";
 import { NombaWebhookGuard } from "../../auth/guard";
 import {
     BuyOrderWebhookPayment,
@@ -29,6 +32,7 @@ export class NombaWebhookController {
         private readonly slackWebhookService: SlackWebhookService,
         private readonly paymentWebhookAdapterService: PaymentWebhookAdapterService,
         private readonly sellPayoutReconciliationService: SellPayoutReconciliationService,
+        private readonly buyRefundReconciliationService: BuyRefundReconciliationService,
     ) { }
 
     /**
@@ -191,15 +195,7 @@ export class NombaWebhookController {
                     event,
                     reference: resolvedReference,
                     provider: 'nomba',
-                    prisma: this.prisma,
                     buyOrderService: this.buyOrderService,
-                    slackWebhookService: this.slackWebhookService,
-                    logger: this.logger,
-                    buildUnderpaymentMessage: ({ amount, expectedAmount, event: webhookEvent }) => (
-                        `Underpayment: received ${amount} but expected ${expectedAmount}. Order NOT auto-fulfilled. ` +
-                        `Sender: ${webhookEvent.senderAccountName || 'N/A'} (${webhookEvent.senderAccountNumber || 'N/A'}) @ ${webhookEvent.senderBankName || 'N/A'}. ` +
-                        `Auto-cancel will run after 2 hours. Ops must process refund.`
-                    ),
                 });
                 this.logger.log(`Payment identified as Buy Order payment (Order ID: ${payment.orderId}). Triggering fulfillment.`);
                 this.logger.log(`Buy order fulfillment completed for payment ${payment.id}`);
@@ -236,7 +232,7 @@ export class NombaWebhookController {
         // updateMany doesn't support externalReference (no unique filter), use findFirst + update
         const payment = await this.prisma.payment.findFirst({ where: { reference } });
         if (payment) {
-            const sellPayoutTransition = await this.prisma.$transaction(async (tx) => {
+            const transitions = await this.prisma.$transaction(async (tx) => {
                 await tx.payment.update({
                     where: { id: payment.id },
                     data: {
@@ -246,21 +242,57 @@ export class NombaWebhookController {
                     },
                 });
 
-                if (!payment.orderId) {
-                    return null;
+                const refundTransition =
+                    await this.buyRefundReconciliationService.reconcileRefundPayoutState(
+                        tx,
+                        {
+                            provider: "nomba",
+                            reference,
+                            status: TransactionStatus.SUCCESS,
+                            externalReference: event.providerReference,
+                        },
+                    );
+
+                if (refundTransition) {
+                    return {
+                        refundTransition,
+                        sellPayoutTransition: null,
+                    };
                 }
 
-                return this.sellPayoutReconciliationService.reconcileSellPayoutState(tx, {
-                    orderId: payment.orderId,
-                    provider: "nomba",
-                    reference,
-                    status: TransactionStatus.SUCCESS,
-                });
+                if (!payment.orderId) {
+                    return {
+                        refundTransition: null,
+                        sellPayoutTransition: null,
+                    };
+                }
+
+                const sellPayoutTransition =
+                    await this.sellPayoutReconciliationService.reconcileSellPayoutState(
+                        tx,
+                        {
+                            orderId: payment.orderId,
+                            provider: "nomba",
+                            reference,
+                            status: TransactionStatus.SUCCESS,
+                        },
+                    );
+
+                return {
+                    refundTransition: null,
+                    sellPayoutTransition,
+                };
             });
 
-            if (sellPayoutTransition) {
+            if (transitions?.refundTransition) {
+                await this.buyRefundReconciliationService.executeRefundSideEffects(
+                    transitions.refundTransition,
+                );
+            }
+
+            if (transitions?.sellPayoutTransition) {
                 await this.sellPayoutReconciliationService.executeSellPayoutSideEffects(
-                    sellPayoutTransition,
+                    transitions.sellPayoutTransition,
                 );
             }
         }
@@ -285,18 +317,28 @@ export class NombaWebhookController {
             select: { id: true, orderId: true, userId: true, totalAmount: true },
         });
 
-        const sellPayoutTransitions = await this.prisma.$transaction(async (tx) => {
-            const transitions: SellPayoutStateTransition[] = [];
-
-            await tx.payment.updateMany({
-                where: { reference },
-                data: {
-                    status: TransactionStatus.FAILED,
-                    paymentStatus: TransactionStatus.FAILED,
-                },
-            });
+        const transitions = await this.prisma.$transaction(async (tx) => {
+            const sellTransitions: SellPayoutStateTransition[] = [];
+            const refundTransition =
+                await this.buyRefundReconciliationService.reconcileRefundPayoutState(
+                    tx,
+                    {
+                        provider: "nomba",
+                        reference,
+                        status: TransactionStatus.FAILED,
+                        externalReference: event.providerReference,
+                    },
+                );
 
             for (const payment of payments) {
+                await tx.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: TransactionStatus.FAILED,
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+
                 if (!payment.orderId) {
                     continue;
                 }
@@ -309,14 +351,20 @@ export class NombaWebhookController {
                 });
 
                 if (transition) {
-                    transitions.push(transition);
+                    sellTransitions.push(transition);
                 }
             }
 
-            return transitions;
+            return { refundTransition, sellTransitions };
         });
 
-        for (const transition of sellPayoutTransitions) {
+        if (transitions.refundTransition) {
+            await this.buyRefundReconciliationService.executeRefundSideEffects(
+                transitions.refundTransition,
+            );
+        }
+
+        for (const transition of transitions.sellTransitions) {
             await this.sellPayoutReconciliationService.executeSellPayoutSideEffects(
                 transition,
             );

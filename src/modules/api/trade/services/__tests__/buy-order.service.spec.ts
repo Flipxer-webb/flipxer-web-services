@@ -36,6 +36,10 @@ import { RateService } from "../rate.service";
 import { NotificationDispatcher } from "@/modules/api/notification/services/notification-dispatcher.service";
 import { DistributedLockService } from "@/modules/core/redisCache/services/distributed-lock.service";
 import { TransactionService } from "@/modules/api/auth/services/transaction.service";
+import {
+    BUY_REFUND_REASON,
+    BuyRefundOrchestratorService,
+} from "../buy-refund-orchestrator.service";
 import { MIN_BUY_AMOUNT_USDT } from "@/modules/api/trade/constants";
 
 import { OrderStatus, PaymentMethod, TransactionStatus } from "@prisma/client";
@@ -46,6 +50,10 @@ describe("BuyOrderService", () => {
     let tradeHelpers: {
         ensureSupportedTradeAsset: jest.Mock;
         validateMinimumAmountInUSDT: jest.Mock;
+    };
+    let transactionService: {
+        previewTransactionLimits: jest.Mock;
+        releaseDailyLimitReservationForOrder: jest.Mock;
     };
     let inboundFiatPaymentService: {
         initializePayment: jest.Mock;
@@ -163,6 +171,17 @@ describe("BuyOrderService", () => {
             ),
         };
 
+        const mockTransactionService = {
+            previewTransactionLimits: jest.fn().mockResolvedValue(undefined),
+            releaseDailyLimitReservationForOrder: jest
+                .fn()
+                .mockResolvedValue(undefined),
+        };
+
+        const mockBuyRefundOrchestratorService = {
+            ensureRefundPayoutForPayment: jest.fn().mockResolvedValue(undefined),
+        };
+
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 BuyOrderService,
@@ -196,11 +215,11 @@ describe("BuyOrderService", () => {
                 },
                 {
                     provide: TransactionService,
-                    useValue: {
-                        releaseDailyLimitReservationForOrder: jest
-                            .fn()
-                            .mockResolvedValue(undefined),
-                    },
+                    useValue: mockTransactionService,
+                },
+                {
+                    provide: BuyRefundOrchestratorService,
+                    useValue: mockBuyRefundOrchestratorService,
                 },
             ],
         }).compile();
@@ -208,6 +227,7 @@ describe("BuyOrderService", () => {
         service = module.get<BuyOrderService>(BuyOrderService);
         prismaService = module.get(PrismaService);
         tradeHelpers = module.get(TradeHelpersService);
+        transactionService = module.get(TransactionService);
         inboundFiatPaymentService = module.get(InboundFiatPaymentService);
     });
 
@@ -239,6 +259,13 @@ describe("BuyOrderService", () => {
                 quoteDto,
             );
 
+            expect(transactionService.previewTransactionLimits).toHaveBeenCalledWith(
+                mockUser,
+                quoteDto.amount,
+                quoteDto.asset,
+                "BUY",
+                "buy/quote",
+            );
             expect(result).toBeDefined();
             expect(result.data).toBeDefined();
         });
@@ -337,6 +364,16 @@ describe("BuyOrderService", () => {
 
             expect(res.message).toContain("Order already exists");
             expect(res.data.paymentInfo.reference).toBe("idem-ref-2");
+            expect(
+                transactionService.releaseDailyLimitReservationForOrder,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: mockUser.id,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.01,
+                }),
+            );
         });
 
         it("rejects idempotency keys reused with a different payment method", async () => {
@@ -383,6 +420,16 @@ describe("BuyOrderService", () => {
 
             expect(res.message).toContain("Order already exists");
             expect(res.data.order.id).toBe(202);
+            expect(
+                transactionService.releaseDailyLimitReservationForOrder,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: mockUser.id,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.01,
+                }),
+            );
         });
 
         it("rejects buy orders below the minimum before pending-order lookup", async () => {
@@ -762,6 +809,56 @@ describe("BuyOrderService", () => {
                     }),
                 }),
             );
+        });
+
+        it("releases reserved limit capacity and cleans up provider artifacts when order persistence fails", async () => {
+            prismaService.payment.findUnique.mockResolvedValue(null);
+            prismaService.payment.findFirst.mockResolvedValue(null);
+
+            (service as any).inboundFiatPaymentService.initializePayment = jest
+                .fn()
+                .mockResolvedValue({
+                    provider: "nomba",
+                    mode: "virtual_account",
+                    reference: "failed-order-ref-1",
+                    providerAccountReference: "failed-order-va-1",
+                    amount: 100,
+                    accountNumber: "0004445555",
+                    accountName: "Flipxer User",
+                    bankName: "Nomba MFB",
+                    bankCode: "0900",
+                    expiryAt: new Date(
+                        Date.now() + 30 * 60 * 1000,
+                    ).toISOString(),
+                });
+
+            prismaService.$transaction = jest
+                .fn()
+                .mockRejectedValue(new Error("db write failed"));
+
+            await expect(
+                service.buyCryptoOrder(mockUser as any, {
+                    ...orderDto,
+                    idempotencyKey: "failed-order-idem-1",
+                }),
+            ).rejects.toThrow("db write failed");
+
+            expect(
+                transactionService.releaseDailyLimitReservationForOrder,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: mockUser.id,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.01,
+                }),
+            );
+            expect(
+                inboundFiatPaymentService.cleanupPendingPayment,
+            ).toHaveBeenCalledWith({
+                provider: "nomba",
+                reference: "failed-order-va-1",
+            });
         });
     });
 
@@ -1154,6 +1251,8 @@ describe("BuyOrderService", () => {
                 .notify as jest.Mock;
             const ws = (service as any).wsGateway;
             const transactionService = (service as any).transactionService;
+            const paymentUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+            const orderUpdate = jest.fn().mockResolvedValue(undefined);
 
             prismaService.payment.findFirst.mockResolvedValue({
                 id: 11,
@@ -1174,12 +1273,10 @@ describe("BuyOrderService", () => {
                 .mockImplementation(async (cb: any) =>
                     cb({
                         payment: {
-                            updateMany: jest
-                                .fn()
-                                .mockResolvedValue({ count: 1 }),
+                            updateMany: paymentUpdateMany,
                         },
                         order: {
-                            update: jest.fn().mockResolvedValue(undefined),
+                            update: orderUpdate,
                         },
                     }),
                 );
@@ -1205,6 +1302,22 @@ describe("BuyOrderService", () => {
                     orderCategory: "BUY",
                     currency: "BTC",
                     amount: 0.2,
+                }),
+            );
+            expect(paymentUpdateMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        narration: expect.stringContaining(
+                            "cancelled by user",
+                        ),
+                    }),
+                }),
+            );
+            expect(orderUpdate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reason: expect.stringContaining("cancelled by user"),
+                    }),
                 }),
             );
             expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(1);
@@ -1441,6 +1554,8 @@ describe("BuyOrderService", () => {
                 .notify as jest.Mock;
             const ws = (service as any).wsGateway;
             const transactionService = (service as any).transactionService;
+            const paymentUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+            const orderUpdate = jest.fn().mockResolvedValue(undefined);
 
             prismaService.payment.findMany.mockResolvedValue([
                 {
@@ -1469,12 +1584,10 @@ describe("BuyOrderService", () => {
                 .mockImplementation(async (cb: any) =>
                     cb({
                         payment: {
-                            updateMany: jest
-                                .fn()
-                                .mockResolvedValue({ count: 1 }),
+                            updateMany: paymentUpdateMany,
                         },
                         order: {
-                            update: jest.fn().mockResolvedValue(undefined),
+                            update: orderUpdate,
                         },
                     }),
                 );
@@ -1488,6 +1601,24 @@ describe("BuyOrderService", () => {
                     orderCategory: "BUY",
                     currency: "BTC",
                     amount: 0.3,
+                }),
+            );
+            expect(paymentUpdateMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        narration: expect.stringContaining(
+                            "payment window expired",
+                        ),
+                    }),
+                }),
+            );
+            expect(orderUpdate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        reason: expect.stringContaining(
+                            "payment window expired",
+                        ),
+                    }),
                 }),
             );
             expect(ws.notifyWalletUpdate).toHaveBeenCalledWith(77);
@@ -1587,7 +1718,7 @@ describe("BuyOrderService", () => {
             );
         });
 
-        it("cancelUnderpaidBuyOrders cancels underpaid orders and sends ops alert", async () => {
+        it("cancelUnderpaidBuyOrders closes expired wrong-amount orders and sends ops alert", async () => {
             const notify = (service as any).notificationDispatcher
                 .notify as jest.Mock;
             const slack = (service as any).slackWebhookService
@@ -1656,13 +1787,15 @@ describe("BuyOrderService", () => {
             expect(notify).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: 88,
-                    title: "Buy order cancelled - underpayment",
+                    title: "Buy order expired",
                 }),
             );
             expect(slack).toHaveBeenCalledWith(
                 "nomba",
                 "pay-701",
-                expect.stringContaining("Underpaid buy order auto-cancelled"),
+                expect.stringContaining(
+                    "Wrong-amount BUY payment expired without an exact resend",
+                ),
                 expect.objectContaining({
                     orderId: 901,
                     userId: 88,
@@ -1742,6 +1875,110 @@ describe("BuyOrderService", () => {
                 .mockRejectedValue(new Error("db lock timeout"));
 
             await expect(service.cancelUnderpaidBuyOrders()).resolves.toBe(1);
+        });
+
+        it("cancelUnderpaidBuyOrders closes expired exact-amount account-name mismatch orders", async () => {
+            const notify = (service as any).notificationDispatcher
+                .notify as jest.Mock;
+            const slack = (service as any).slackWebhookService
+                .sendWebhookFailureAlert as jest.Mock;
+            const buyRefundOrchestrator = (service as any)
+                .buyRefundOrchestratorService;
+            const transactionService = (service as any).transactionService;
+
+            prismaService.payment.findMany.mockResolvedValue([
+                {
+                    id: 705,
+                    reference: "pay-705",
+                    orderId: 905,
+                    userId: 92,
+                    paymentMethod: PaymentMethod.NOMBA,
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.REVERSAL,
+                    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+                    totalAmount: "120000",
+                    receivedAmount: "120000",
+                    senderAccountName: "Different Person",
+                    senderAccountNumber: "1234567890",
+                    senderBankName: "Bank A",
+                    order: {
+                        id: 905,
+                        amount: 0.9,
+                        currency: "BTC",
+                        status: OrderStatus.pending,
+                        transactionId: "tx-905",
+                    },
+                    user: {
+                        id: 92,
+                        email: "u92@flipxer.com",
+                        firstName: "Tier1",
+                        lastName: "TestUser",
+                        middleName: null,
+                        businessName: null,
+                        userType: "INDIVIDUAL",
+                    },
+                    refundAttempts: [
+                        {
+                            id: 88,
+                            reasonCode: BUY_REFUND_REASON.ACCOUNT_NAME_MISMATCH,
+                            retryCount: 1,
+                        },
+                    ],
+                },
+            ]);
+
+            prismaService.$transaction = jest
+                .fn()
+                .mockImplementation(async (cb: any) =>
+                    cb({
+                        payment: {
+                            updateMany: jest
+                                .fn()
+                                .mockResolvedValue({ count: 1 }),
+                        },
+                        order: {
+                            update: jest.fn().mockResolvedValue(undefined),
+                        },
+                    }),
+                );
+
+            await expect(service.cancelUnderpaidBuyOrders()).resolves.toBe(1);
+
+            expect(
+                transactionService.releaseDailyLimitReservationForOrder,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 92,
+                    orderCategory: "BUY",
+                    currency: "BTC",
+                    amount: 0.9,
+                }),
+            );
+            expect(
+                buyRefundOrchestrator.ensureRefundPayoutForPayment,
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    paymentId: 705,
+                    provider: "nomba",
+                    reasonCode: BUY_REFUND_REASON.ACCOUNT_NAME_MISMATCH,
+                    refundAmount: 120000,
+                    metadata: expect.objectContaining({
+                        orderExpired: true,
+                        senderAccountName: "Different Person",
+                        registeredAccountName: "Tier1 TestUser",
+                    }),
+                }),
+            );
+            expect(notify).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 92,
+                    title: "Buy order expired",
+                    body: expect.stringContaining(
+                        "did not sufficiently match your registered account holder name Tier1 TestUser",
+                    ),
+                }),
+            );
+            expect(slack).not.toHaveBeenCalled();
         });
 
         it("executeInternalBuy returns success payload and throws on ledger credit failure", async () => {
@@ -2357,7 +2594,7 @@ describe("BuyOrderService", () => {
 
         // ── 5. Underpayment cancel (cancelUnderpaidBuyOrders cron) ────────────
 
-        describe("cancelUnderpaidBuyOrders — underpayment notification", () => {
+        describe("cancelUnderpaidBuyOrders — expired wrong-amount notification", () => {
             const underpaidPayment = {
                 id: 700,
                 reference: "pay-700",
@@ -2401,13 +2638,13 @@ describe("BuyOrderService", () => {
                     );
             });
 
-            it("sends push + email 'Buy order cancelled - underpayment' with received/expected amounts", async () => {
+            it("sends push + email 'Buy order expired' with received/expected amounts", async () => {
                 await service.cancelUnderpaidBuyOrders();
 
                 expect(notify).toHaveBeenCalledWith(
                     expect.objectContaining({
                         userId: 88,
-                        title: "Buy order cancelled - underpayment",
+                        title: "Buy order expired",
                         enablePush: true,
                         enableEmail: true,
                     }),
@@ -2415,11 +2652,11 @@ describe("BuyOrderService", () => {
 
                 const call = notify.mock.calls[0][0];
 
-                // Body must show both received and expected amounts + refund mention
+                // Body must show both received and expected amounts and confirm closure
                 expect(call.body).toMatch(/60000/); // received
                 expect(call.body).toMatch(/100000/); // expected
                 expect(call.body).toMatch(/TX-UNDERPAY-001/);
-                expect(call.body).toMatch(/refund/i);
+                expect(call.body).toMatch(/order is now closed/i);
 
                 // Email payload
                 expect(call.emailPayload).toMatchObject({
@@ -2432,7 +2669,7 @@ describe("BuyOrderService", () => {
                 });
             });
 
-            it("sends Slack ops alert with sender details for manual refund", async () => {
+            it("sends Slack ops alert with sender details for refund handling", async () => {
                 const slack = (service as any).slackWebhookService
                     .sendWebhookFailureAlert as jest.Mock;
                 const transactionService = (service as any).transactionService;
@@ -2455,7 +2692,7 @@ describe("BuyOrderService", () => {
                     "nomba",
                     "pay-700",
                     expect.stringContaining(
-                        "Underpaid buy order auto-cancelled",
+                        "Wrong-amount BUY payment expired without an exact resend",
                     ),
                     expect.objectContaining({
                         orderId: 900,

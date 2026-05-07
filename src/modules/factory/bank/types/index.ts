@@ -1,6 +1,7 @@
 export * as TFincra from "./fincra";
 export * as TNomba from "./nomba";
 export * from "./inbound-payment";
+export * from "./refund-payment";
 
 export type BankProvider = "fincra" | "nomba";
 

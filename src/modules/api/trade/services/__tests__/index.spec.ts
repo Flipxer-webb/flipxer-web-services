@@ -1578,6 +1578,7 @@ describe("TradingService (index)", () => {
                 streamlinedStatus: "pending",
                 orderCategory: OrderCategory.SEND,
                 updatedAt: new Date("2026-03-29T10:00:00Z"),
+                refundAttempts: [],
             });
 
             const res = await service.getOrderStatus(
@@ -1587,6 +1588,30 @@ describe("TradingService (index)", () => {
 
             expect(res.data.transactionId).toBe("txn-1");
             expect(res.data.status).toBe(OrderStatus.processing);
+        });
+
+        it("getOrderStatus surfaces refunded only after the latest BUY refund settles", async () => {
+            const { service, prisma } = makeDeps();
+            prisma.order.findFirst.mockResolvedValue({
+                transactionId: "txn-buy-refund",
+                status: OrderStatus.reversed,
+                streamlinedStatus: "cancelled",
+                orderCategory: OrderCategory.BUY,
+                updatedAt: new Date("2026-05-07T00:10:00Z"),
+                refundAttempts: [
+                    {
+                        status: TransactionStatus.SUCCESS,
+                    },
+                ],
+            });
+
+            const res = await service.getOrderStatus(
+                { id: 10 } as any,
+                "txn-buy-refund",
+            );
+
+            expect(res.data.streamlinedStatus).toBe("refunded");
+            expect(res.data.status).toBe(OrderStatus.reversed);
         });
 
         it("refreshTransactionStatus returns early for final transaction states", async () => {

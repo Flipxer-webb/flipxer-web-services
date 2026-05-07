@@ -73,6 +73,8 @@ export class PaymentWebhookAdapterService {
             senderAccountNumber: customer.accountNumber,
             senderAccountName: customer.senderName,
             senderBankName: customer.bankName,
+            senderBankCode:
+                customer.bankCode || data.bankCode || transaction.bankCode,
             raw: body,
             metadata: {
                 accountRef: data.accountRef || transaction.accountRef || transaction.aliasAccountReference || order.accountId,
@@ -111,6 +113,7 @@ export class PaymentWebhookAdapterService {
             senderAccountNumber: data.accountNumber,
             senderAccountName: data.accountName || data.accountHolderName,
             senderBankName: data.bankName,
+            senderBankCode: data.bankCode,
             raw: payload,
             metadata: {
                 fee: typeof data.fee === "number" ? data.fee : Number(data.fee || 0) || undefined,

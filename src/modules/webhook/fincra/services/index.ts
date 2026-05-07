@@ -88,9 +88,7 @@ export class FincraWebhookService {
                         event,
                         reference,
                         provider: "fincra",
-                        prisma: this.prisma,
                         buyOrderService: this.buyOrderService,
-                        slackWebhookService: this.slackService,
                     });
                     break;
                 }

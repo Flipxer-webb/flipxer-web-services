@@ -22,6 +22,7 @@ import {
     ResolveBankAccountOptions,
     ResolveBankAccountResponse,
     InitializeTransferOptions,
+    InitializeRefundTransferOptions,
 } from "../types/fincra";
 import * as e from "../errors/fincra.error";
 import { TransactionShortDescription } from "@/modules/api/transactions/types";
@@ -302,6 +303,121 @@ export class FincraBank implements TFincra.IFincraBank {
         }
     }
 
+    async initializeRefundTransfer(
+        options: InitializeRefundTransferOptions
+    ): Promise<{ paymentId: number; externalReference?: string | null }> {
+        try {
+            const resolved = await this.resolveBankAccount({
+                account_number: options.accountNumber,
+                bank_code: options.bankCode,
+            });
+
+            const payment = await this.prisma.payment.create({
+                data: {
+                    amount: options.amount,
+                    flow: TransactionFlow.OUT,
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.PENDING,
+                    totalAmount: options.amount,
+                    type: TransactionType.BANK_TRANSFER_REFUND,
+                    userId: options.userId,
+                    transactionId: generateId({ type: "transaction" }),
+                    orderId: options.orderId,
+                    chargeFee: 0,
+                    destinationBankAccountName:
+                        options.accountName || resolved.data.accountName,
+                    destinationBankName: options.bankName,
+                    destinationBankAccountNumber: options.accountNumber,
+                    reference: options.reference,
+                    title: TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    narration:
+                        options.narration ||
+                        TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    sessionId: generateId({ type: "sessionId" }),
+                    shortDescription:
+                        TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    paymentMethod: PaymentMethod.FINCRA,
+                },
+            });
+
+            try {
+                const nameParts = (
+                    options.accountName || resolved.data.accountName
+                ).split(" ");
+                const firstName = nameParts[0] || "Customer";
+                const lastName = nameParts.slice(1).join(" ") || "User";
+
+                const result = await this.fincra.initiateBankTransfer({
+                    amount: options.amount,
+                    business: Config.fincraOptions.businessId || "",
+                    sourceCurrency: "NGN",
+                    destinationCurrency: "NGN",
+                    description:
+                        options.narration || "Buy order refund payout",
+                    paymentDestination: "bank_account",
+                    customerReference: options.reference,
+                    beneficiary: {
+                        firstName,
+                        lastName,
+                        accountHolderName:
+                            options.accountName || resolved.data.accountName,
+                        accountNumber: options.accountNumber,
+                        bankCode: options.bankCode,
+                        type: "individual",
+                        country: "NG",
+                    },
+                    sender: options.senderName
+                        ? {
+                              name: options.senderName,
+                              email: options.senderEmail || "",
+                          }
+                        : undefined,
+                });
+
+                const externalReference =
+                    result?.data?.reference || result?.data?.id || null;
+
+                if (externalReference) {
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: { externalReference },
+                    });
+                }
+
+                return {
+                    paymentId: payment.id,
+                    externalReference,
+                };
+            } catch (transferError) {
+                await this.prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: TransactionStatus.FAILED,
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+                throw transferError;
+            }
+        } catch (error) {
+            logger.error(error, "****INITIALIZE REFUND TRANSFER****** FINCRA");
+            if (error instanceof e.FINCRABankException) {
+                throw error;
+            }
+            if (error instanceof e.FincraWorkflowException) {
+                throw error;
+            }
+            if (error instanceof e.FincraTransferException) {
+                throw error;
+            }
+            throw new e.FincraWorkflowException(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to initialize refund transfer",
+                HttpStatus.NOT_IMPLEMENTED
+            );
+        }
+    }
+
     async verifyTransferStatus(reference: string) {
         try {
             const resp = await this.fincra.verifyPayoutByCustomerReference(reference);
@@ -333,6 +449,10 @@ export class FincraBank implements TFincra.IFincraBank {
                 HttpStatus.NOT_IMPLEMENTED
             );
         }
+    }
+
+    async verifyRefundTransferStatus(reference: string) {
+        return this.verifyTransferStatus(reference);
     }
 
     async getWallets(): Promise<FincraWalletsResponse> {

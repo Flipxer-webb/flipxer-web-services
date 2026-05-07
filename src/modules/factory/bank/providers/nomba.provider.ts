@@ -15,6 +15,7 @@ import {
     NombaResolveBankAccountOptions,
     NombaResolveBankAccountResponse,
     NombaInitializeTransferOptions,
+    NombaInitializeRefundTransferOptions,
     NombaVirtualAccountOptions,
 } from "../types/nomba";
 import * as e from "../errors/nomba.error";
@@ -501,12 +502,205 @@ export class NombaBank implements TNomba.INombaBank {
         }
     }
 
-    /**
-     * Verify transfer status by merchant reference
-     */
-    async verifyTransferStatus(reference: string) {
+    async initializeRefundTransfer(
+        options: NombaInitializeRefundTransferOptions
+    ): Promise<{
+        paymentId: number;
+        externalReference?: string | null;
+        providerReference?: string | null;
+    }> {
         try {
-            const resp = await this.nomba.getTransferByMerchantRef(reference);
+            const resolved = await this.resolveBankAccount({
+                account_number: options.accountNumber,
+                bank_code: options.bankCode,
+            });
+
+            const payment = await this.prisma.payment.create({
+                data: {
+                    amount: options.amount,
+                    flow: TransactionFlow.OUT,
+                    status: TransactionStatus.PENDING,
+                    paymentStatus: TransactionStatus.PENDING,
+                    totalAmount: options.amount,
+                    type: TransactionType.BANK_TRANSFER_REFUND,
+                    userId: options.userId,
+                    transactionId: generateId({ type: "transaction" }),
+                    orderId: options.orderId,
+                    chargeFee: 0,
+                    destinationBankAccountName:
+                        options.accountName || resolved.data.accountName,
+                    destinationBankName: options.bankName,
+                    destinationBankAccountNumber: options.accountNumber,
+                    reference: options.reference,
+                    title: TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    narration:
+                        options.narration ||
+                        TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    sessionId: generateId({ type: "sessionId" }),
+                    shortDescription:
+                        TransactionShortDescription.BANK_TRANSFER_REFUND,
+                    paymentMethod: PaymentMethod.NOMBA,
+                },
+            });
+
+            try {
+                const result = await this.nomba.initiateBankTransfer({
+                    amount: options.amount,
+                    accountNumber: options.accountNumber,
+                    accountName:
+                        options.accountName || resolved.data.accountName,
+                    bankCode: options.bankCode,
+                    merchantTxRef: options.reference,
+                    narration:
+                        options.narration ||
+                        "Buy order refund payout",
+                    senderName: options.senderName,
+                });
+
+                const externalReference = result?.data?.id || null;
+                const providerReference =
+                    result?.data?.reference
+                    || result?.data?.merchantTxRef
+                    || result?.data?.meta?.merchantTxRef
+                    || options.reference
+                    || null;
+
+                if (externalReference || providerReference) {
+                    await this.prisma.payment.update({
+                        where: { id: payment.id },
+                        data: {
+                            ...(externalReference
+                                ? { externalReference }
+                                : {}),
+                            ...(providerReference
+                                ? {
+                                      providerAccountReference:
+                                          providerReference,
+                                  }
+                                : {}),
+                        },
+                    });
+                }
+
+                return {
+                    paymentId: payment.id,
+                    externalReference,
+                    providerReference,
+                };
+            } catch (transferError) {
+                await this.prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        status: TransactionStatus.FAILED,
+                        paymentStatus: TransactionStatus.FAILED,
+                    },
+                });
+                throw transferError;
+            }
+        } catch (error) {
+            logger.error(error, "****INITIALIZE REFUND TRANSFER****** NOMBA");
+            if (error instanceof e.NOMBABankException) {
+                throw error;
+            }
+            if (error instanceof e.NombaWorkflowException) {
+                throw error;
+            }
+            if (error instanceof e.NombaTransferException) {
+                throw error;
+            }
+            throw new e.NombaWorkflowException(
+                error instanceof Error
+                    ? error.message
+                    : "Failed to initialize refund transfer",
+                HttpStatus.NOT_IMPLEMENTED
+            );
+        }
+    }
+
+    private isNotFoundError(error: unknown): boolean {
+        return (
+            error instanceof Error
+            && (
+                (error as Error & { status?: number }).status === 404
+                || error.message.includes("404")
+            )
+        );
+    }
+
+    private async lookupTransferStatus(options: {
+        reference: string;
+        externalReference?: string | null;
+        providerReference?: string | null;
+    }) {
+        const candidates: Array<{
+            kind: "transfer-id" | "merchant-ref";
+            value: string;
+        }> = [];
+        const seen = new Set<string>();
+        const addCandidate = (
+            kind: "transfer-id" | "merchant-ref",
+            value?: string | null,
+        ) => {
+            const normalized = value?.trim();
+            if (!normalized) {
+                return;
+            }
+
+            const candidateKey = `${kind}:${normalized}`;
+            if (seen.has(candidateKey)) {
+                return;
+            }
+
+            seen.add(candidateKey);
+            candidates.push({ kind, value: normalized });
+        };
+
+        // Nomba returns both transfer ids and provider references; try the
+        // provider-facing identifier before falling back to our merchant ref.
+        addCandidate("transfer-id", options.externalReference);
+        addCandidate("merchant-ref", options.providerReference);
+        // Preserve support for historical rows where externalReference was
+        // ambiguously populated with the provider reference.
+        addCandidate("merchant-ref", options.externalReference);
+        addCandidate("merchant-ref", options.reference);
+
+        let lastError: unknown;
+
+        for (const candidate of candidates) {
+            try {
+                return candidate.kind === "transfer-id"
+                    ? await this.nomba.getTransferStatus(candidate.value)
+                    : await this.nomba.getTransferByMerchantRef(candidate.value);
+            } catch (error) {
+                if (this.isNotFoundError(error)) {
+                    lastError = error;
+                    continue;
+                }
+
+                throw error;
+            }
+        }
+
+        throw (
+            lastError
+            || new e.NombaVerifyTransactionException(
+                "Unable to verify transfer status",
+                HttpStatus.NOT_IMPLEMENTED,
+            )
+        );
+    }
+
+    async verifyTransferStatus(
+        reference: string,
+        externalReference?: string | null,
+        providerReference?: string | null,
+    ) {
+        try {
+            const resp = await this.lookupTransferStatus({
+                reference,
+                externalReference,
+                providerReference,
+            });
             if (!resp?.data) {
                 throw new e.NombaVerifyTransactionException(
                     "Unable to verify transfer status",
@@ -538,6 +732,18 @@ export class NombaBank implements TNomba.INombaBank {
                 HttpStatus.NOT_IMPLEMENTED
             );
         }
+    }
+
+    async verifyRefundTransferStatus(
+        reference: string,
+        externalReference?: string | null,
+        providerReference?: string | null,
+    ) {
+        return this.verifyTransferStatus(
+            reference,
+            externalReference,
+            providerReference,
+        );
     }
 
     /**

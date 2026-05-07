@@ -1,7 +1,15 @@
 import { Test, TestingModule } from "@nestjs/testing";
 
 jest.mock("../../../auth/guard", () => ({
-    FincraWebhookGuard: class { isStub() { return true; } },
+    AuthGuard: class { canActivate() { return true; } },
+    CountryBlockGuard: class { canActivate() { return true; } },
+    EnabledAccountGuard: class { canActivate() { return true; } },
+    FincraWebhookGuard: class { canActivate() { return true; } },
+    NombaWebhookGuard: class { canActivate() { return true; } },
+    QuidaxWebhookGuard: class { canActivate() { return true; } },
+    SocketAuthGuard: class { canActivate() { return true; } },
+    TransactionAmountGuard: class { canActivate() { return true; } },
+    TwoFactorGuard: class { canActivate() { return true; } },
     __esModule: true,
 }));
 
@@ -20,6 +28,29 @@ jest.mock("@/modules/api/operations/services/slack-webhook.service", () => ({
     __esModule: true,
 }));
 
+jest.mock("@/modules/api/user", () => {
+    class AccountDeletedException extends Error {
+        constructor() {
+            super("Account deleted");
+        }
+    }
+    class UserNotFoundException extends Error {
+        constructor() {
+            super("User not found");
+        }
+    }
+    return {
+        User: () => () => {},
+        ClientData: () => () => {},
+        UserModule: class {
+            readonly __stub = true;
+        },
+        AccountDeletedException,
+        UserNotFoundException,
+        __esModule: true,
+    };
+});
+
 import { FincraWebhookController } from "../fincra-webhook.controller";
 import { BankService } from "../../services";
 import { PrismaService } from "@/modules/core/prisma/services";
@@ -27,13 +58,14 @@ import { PaymentWebhookAdapterService } from "@/modules/factory/bank/services/pa
 import { BuyOrderService } from "../../../trade/services/buy-order.service";
 import { SlackWebhookService } from "@/modules/api/operations/services/slack-webhook.service";
 import { TransactionStatus } from "@prisma/client";
+import { BuyRefundReconciliationService } from "../../../trade/services/buy-refund-reconciliation.service";
 
 function makePrisma() {
     return {
         webhookLog: { upsert: jest.fn() },
         payment: {
             findUnique: jest.fn().mockResolvedValue(null),
-            updateMany: jest.fn(),
+            findMany: jest.fn().mockResolvedValue([]),
             update: jest.fn().mockResolvedValue({}),
         },
     };
@@ -47,8 +79,14 @@ describe("PaymentGatewayWebhookController", () => {
         paymentFailedHandler: jest.Mock;
         processAssetValueTransferToBankHandler: jest.Mock;
     };
-    let buyOrderService: { fulfillBuyOrder: jest.Mock };
+    let buyOrderService: {
+        fulfillBuyOrder: jest.Mock;
+        handleWebhookBuyOrderPayment: jest.Mock;
+    };
     let slackWebhookService: { sendWebhookFailureAlert: jest.Mock };
+    let buyRefundReconciliationService: {
+        reconcileRefundPayout: jest.Mock;
+    };
 
     beforeEach(async () => {
         prisma = makePrisma();
@@ -57,8 +95,19 @@ describe("PaymentGatewayWebhookController", () => {
             paymentFailedHandler: jest.fn(),
             processAssetValueTransferToBankHandler: jest.fn(),
         };
-        buyOrderService = { fulfillBuyOrder: jest.fn() };
+        const fulfillBuyOrder = jest.fn();
+        buyOrderService = {
+            fulfillBuyOrder,
+            handleWebhookBuyOrderPayment: jest
+                .fn()
+                .mockImplementation(async (options: { reference: string }) => {
+                    await fulfillBuyOrder(options.reference);
+                }),
+        };
         slackWebhookService = { sendWebhookFailureAlert: jest.fn() };
+        buyRefundReconciliationService = {
+            reconcileRefundPayout: jest.fn().mockResolvedValue(false),
+        };
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [FincraWebhookController],
@@ -68,6 +117,10 @@ describe("PaymentGatewayWebhookController", () => {
                 PaymentWebhookAdapterService,
                 { provide: BuyOrderService, useValue: buyOrderService },
                 { provide: SlackWebhookService, useValue: slackWebhookService },
+                {
+                    provide: BuyRefundReconciliationService,
+                    useValue: buyRefundReconciliationService,
+                },
             ],
         }).compile();
 
@@ -92,7 +145,10 @@ describe("PaymentGatewayWebhookController", () => {
         } as any);
 
         expect(prisma.webhookLog.upsert).toHaveBeenCalled();
-        expect(prisma.payment.updateMany).toHaveBeenCalled();
+        expect(prisma.payment.findMany).toHaveBeenCalledWith({
+            where: { reference: "ref-1" },
+            select: { id: true },
+        });
         expect(bankService.paymentSuccessHandler).toHaveBeenCalledWith("ref-1");
         expect(result.success).toBe(true);
     });
@@ -117,12 +173,14 @@ describe("PaymentGatewayWebhookController", () => {
             },
         } as any);
 
-        expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect(buyOrderService.handleWebhookBuyOrderPayment).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { id: 21 },
-                data: expect.objectContaining({
-                    receivedAmount: 1000,
-                    externalReference: "provider-buy-1",
+                payment: expect.objectContaining({ id: 21 }),
+                reference: "buy-ref-1",
+                provider: "fincra",
+                event: expect.objectContaining({
+                    amount: 1000,
+                    providerReference: "provider-buy-1",
                 }),
             }),
         );
@@ -150,27 +208,19 @@ describe("PaymentGatewayWebhookController", () => {
             },
         } as any);
 
-        expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect(buyOrderService.handleWebhookBuyOrderPayment).toHaveBeenCalledWith(
             expect.objectContaining({
-                where: { id: 31 },
-                data: expect.objectContaining({
-                    receivedAmount: 800,
-                    narration: expect.stringContaining("Underpayment"),
+                payment: expect.objectContaining({ id: 31 }),
+                reference: "buy-underpay-1",
+                provider: "fincra",
+                event: expect.objectContaining({
+                    amount: 800,
+                    providerReference: "provider-underpay-1",
                 }),
             }),
         );
-        expect(slackWebhookService.sendWebhookFailureAlert).toHaveBeenCalledWith(
-            "fincra",
-            "buy-underpay-1",
-            expect.stringContaining("Underpayment"),
-            expect.objectContaining({
-                orderId: 32,
-                userId: 33,
-                expectedAmount: 1000,
-                receivedAmount: 800,
-            }),
-        );
-        expect(buyOrderService.fulfillBuyOrder).not.toHaveBeenCalled();
+        expect(slackWebhookService.sendWebhookFailureAlert).not.toHaveBeenCalled();
+        expect(bankService.paymentSuccessHandler).not.toHaveBeenCalled();
     });
 
     it("should process failed collection webhook", async () => {
@@ -189,9 +239,44 @@ describe("PaymentGatewayWebhookController", () => {
             data: { merchantReference: "ref-3", status: "successful" },
         } as any);
 
+        expect(buyRefundReconciliationService.reconcileRefundPayout).toHaveBeenCalledWith({
+            provider: "fincra",
+            reference: "ref-3",
+            status: TransactionStatus.SUCCESS,
+            externalReference: undefined,
+        });
         expect(bankService.processAssetValueTransferToBankHandler).toHaveBeenCalledWith({
             paymentReference: "ref-3",
             transferToBankStatus: "SUCCESS",
+        });
+    });
+
+    it("should stop after refund reconciliation on successful payout when the reference is a refund payout", async () => {
+        buyRefundReconciliationService.reconcileRefundPayout.mockResolvedValue(true);
+
+        await controller.handleFincraWebhook({
+            event: "payout.successful",
+            data: { merchantReference: "refund-ref-1", status: "successful" },
+        } as any);
+
+        expect(bankService.processAssetValueTransferToBankHandler).not.toHaveBeenCalled();
+    });
+
+    it("should reconcile failed refund payouts before falling back to the bank service", async () => {
+        await controller.handleFincraWebhook({
+            event: "payout.failed",
+            data: { merchantReference: "ref-6", status: "failed" },
+        } as any);
+
+        expect(buyRefundReconciliationService.reconcileRefundPayout).toHaveBeenCalledWith({
+            provider: "fincra",
+            reference: "ref-6",
+            status: TransactionStatus.FAILED,
+            externalReference: undefined,
+        });
+        expect(bankService.processAssetValueTransferToBankHandler).toHaveBeenCalledWith({
+            paymentReference: "ref-6",
+            transferToBankStatus: "FAILED",
         });
     });
 

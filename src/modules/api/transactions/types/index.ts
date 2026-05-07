@@ -7,11 +7,40 @@ import {
 } from "@prisma/client";
 import { getStreamlinedStatus } from "../../trade/interfaces/trade";
 
-export type TransactionIncludeOptions = Prisma.OrderGetPayload<{
+type TransactionBaseIncludeOptions = Prisma.OrderGetPayload<{
     include: {
         user: { select: { firstName: true; lastName: true } };
     };
 }>;
+
+export type TransactionIncludeOptions = TransactionBaseIncludeOptions & {
+    refundAttempts?: Array<{
+        status: TransactionStatus;
+        settledAt: Date | null;
+    }>;
+    user: TransactionBaseIncludeOptions["user"] & {
+        email?: string | null;
+        id?: number;
+    };
+};
+
+function getClientFacingStreamlinedStatus(
+    transaction: TransactionIncludeOptions,
+    filter: boolean,
+) {
+    const baseStatus = getStreamlinedStatus(
+        filter ? transaction.streamlinedStatus : transaction.status,
+    ) as string;
+
+    if (
+        transaction.orderCategory === OrderCategory.BUY
+        && transaction.refundAttempts?.[0]?.status === TransactionStatus.SUCCESS
+    ) {
+        return "refunded";
+    }
+
+    return baseStatus;
+}
 
 /**
  * Derives payment method / sender name for receipt display.
@@ -53,9 +82,7 @@ export const shapeTransaction = (
         amount: displayAmount,
         currency: displayCurrency,
         status: t.status,
-        streamLinedStatus: getStreamlinedStatus(
-            filter ? t.streamlinedStatus : t.status
-        ) as string,
+        streamLinedStatus: getClientFacingStreamlinedStatus(t, filter),
         date: t.createdAt,
         updatedAt: t.updatedAt,
         swap:

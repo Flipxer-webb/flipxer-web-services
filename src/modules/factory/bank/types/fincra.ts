@@ -54,6 +54,21 @@ export interface InitializeTransferOptions {
     senderEmail?: string;
 }
 
+export interface InitializeRefundTransferOptions {
+    amount: number;
+    accountName?: string | null;
+    accountNumber: string;
+    bankCode: string;
+    bankName?: string | null;
+    userId: number;
+    orderId: number;
+    refundAttemptId: number;
+    reference: string;
+    senderName?: string;
+    senderEmail?: string;
+    narration?: string;
+}
+
 // Interface for the FincraBank provider
 export interface IFincraBank {
     name?: string;

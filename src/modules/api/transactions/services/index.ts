@@ -27,6 +27,11 @@ export class TransactionService {
         const transactions = await this.prisma.order.findMany({
             include: {
                 user: { select: { firstName: true, lastName: true } },
+                refundAttempts: {
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: { status: true, settledAt: true },
+                },
             },
             orderBy: { createdAt: "desc" },
             take: 10,
@@ -51,6 +56,11 @@ export class TransactionService {
             where: whereClause,
             include: {
                 user: { select: { firstName: true, lastName: true } },
+                refundAttempts: {
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: { status: true, settledAt: true },
+                },
             },
         };
 
@@ -166,6 +176,11 @@ export class TransactionService {
             where: { transactionId: transactionId },
             include: {
                 user: { select: { firstName: true, lastName: true, email: true } },
+                refundAttempts: {
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: { status: true, settledAt: true },
+                },
             },
         });
 

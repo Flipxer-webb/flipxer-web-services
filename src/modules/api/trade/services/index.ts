@@ -44,6 +44,7 @@ import {
     NetworkTypes,
     OrderCategory,
     OrderStatus,
+    TransactionStatus,
     User,
 } from "@prisma/client";
 import {
@@ -2092,6 +2093,13 @@ export class TradingService {
                 streamlinedStatus: true,
                 orderCategory: true,
                 updatedAt: true,
+                refundAttempts: {
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                    select: {
+                        status: true,
+                    },
+                },
             },
         });
 
@@ -2102,7 +2110,17 @@ export class TradingService {
             );
         }
 
-        return order;
+        return {
+            transactionId: order.transactionId,
+            status: order.status,
+            streamlinedStatus:
+                order.orderCategory === OrderCategory.BUY
+                && order.refundAttempts?.[0]?.status === TransactionStatus.SUCCESS
+                    ? "refunded"
+                    : order.streamlinedStatus,
+            orderCategory: order.orderCategory,
+            updatedAt: order.updatedAt,
+        };
     }
 
     /**

@@ -12,6 +12,7 @@ export interface NormalizedPaymentEvent {
     senderAccountNumber?: string;
     senderAccountName?: string;
     senderBankName?: string;
+    senderBankCode?: string;
     raw: any; // Keep raw payload for logging/debugging
     metadata?: {
         accountRef?: string;

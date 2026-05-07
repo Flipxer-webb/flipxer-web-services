@@ -105,7 +105,10 @@ export interface NombaBankTransferResponse {
         fee: number;
         status: string;
         merchantTxRef: string;
-        reference: string;
+        reference?: string;
+        meta?: {
+            merchantTxRef?: string;
+        };
     };
 }
 

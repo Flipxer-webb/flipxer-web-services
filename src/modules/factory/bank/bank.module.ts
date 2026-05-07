@@ -4,6 +4,7 @@ import { BankFactory } from "./factory/bank.factory";
 import { PrismaService } from "@/modules/core/prisma/services";
 import { FiatGatewayRegistryService } from "./services/fiat-gateway-registry.service";
 import { InboundFiatPaymentService } from "./services/inbound-fiat-payment.service";
+import { InboundFiatRefundService } from "./services/inbound-fiat-refund.service";
 import { PaymentWebhookAdapterService } from "./services/payment-webhook-adapter.service";
 
 const fincraProvider: Provider = {
@@ -30,6 +31,7 @@ const nombaProvider: Provider = {
         fincraProvider,
         nombaProvider,
         InboundFiatPaymentService,
+        InboundFiatRefundService,
         FiatGatewayRegistryService,
         PaymentWebhookAdapterService,
     ],
@@ -37,6 +39,7 @@ const nombaProvider: Provider = {
         fincraProvider,
         nombaProvider,
         InboundFiatPaymentService,
+        InboundFiatRefundService,
         FiatGatewayRegistryService,
         PaymentWebhookAdapterService,
     ],

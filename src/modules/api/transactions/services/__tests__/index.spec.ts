@@ -1,3 +1,5 @@
+import { OrderCategory, OrderStatus, TransactionStatus } from "@prisma/client";
+
 import { TransactionService } from "..";
 import { TransactionNotFoundException } from "../../errors";
 
@@ -55,6 +57,7 @@ function buildOrder(overrides: Record<string, unknown> = {}) {
         status: "completed",
         streamlinedStatus: "completed",
         paymentStatus: "paid",
+        refundAttempts: [],
         amount: 100,
         total: 100,
         fee: 1,
@@ -195,6 +198,51 @@ describe("TransactionService", () => {
             );
 
             expect(res.data.records).toBeDefined();
+        });
+
+        it("surfaces settled BUY refunds as refunded while keeping the raw order status", async () => {
+            prisma.$transaction.mockResolvedValue([[
+                buildOrder({
+                    orderCategory: OrderCategory.BUY,
+                    status: OrderStatus.reversed,
+                    streamlinedStatus: "cancelled",
+                    refundAttempts: [
+                        {
+                            status: TransactionStatus.SUCCESS,
+                            settledAt: NOW,
+                        },
+                    ],
+                }),
+            ], 1]);
+
+            const res = await service.getUserTransactionHistory(
+                { sortBy: "desc" } as any,
+            );
+
+            expect(res.data.records[0].status).toBe(OrderStatus.reversed);
+            expect(res.data.records[0].streamLinedStatus).toBe("refunded");
+        });
+
+        it("keeps reversed BUY orders cancelled until the refund settles", async () => {
+            prisma.$transaction.mockResolvedValue([[
+                buildOrder({
+                    orderCategory: OrderCategory.BUY,
+                    status: OrderStatus.reversed,
+                    streamlinedStatus: "cancelled",
+                    refundAttempts: [
+                        {
+                            status: TransactionStatus.PENDING,
+                            settledAt: null,
+                        },
+                    ],
+                }),
+            ], 1]);
+
+            const res = await service.getUserTransactionHistory(
+                { sortBy: "desc" } as any,
+            );
+
+            expect(res.data.records[0].streamLinedStatus).toBe("cancelled");
         });
 
         it("applies asset filter via AND/OR clause", async () => {

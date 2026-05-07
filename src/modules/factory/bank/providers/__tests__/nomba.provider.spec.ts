@@ -21,6 +21,7 @@ describe("NombaBank", () => {
         createCheckoutOrder: jest.fn(),
         getCheckoutStatus: jest.fn(),
         initiateBankTransfer: jest.fn(),
+        getTransferStatus: jest.fn(),
         getTransferByMerchantRef: jest.fn(),
         getAccountBalance: jest.fn(),
         isSandbox: false,
@@ -29,6 +30,7 @@ describe("NombaBank", () => {
     const prisma = {
         payment: {
             create: jest.fn(),
+            update: jest.fn(),
             updateMany: jest.fn(),
         },
         $transaction: jest.fn(),
@@ -480,6 +482,148 @@ describe("NombaBank", () => {
         const result = await provider.verifyTransferStatus("ref-successful");
 
         expect(result.status).toBe("success");
+    });
+
+    it("verifyTransferStatus prefers the provider-facing external reference as transfer id", async () => {
+        nomba.getTransferStatus.mockResolvedValue({
+            data: { status: "SUCCESSFUL", id: "transfer-1", reference: "API-TRANSFER-1" },
+        });
+
+        const result = await provider.verifyTransferStatus(
+            "merchant-ref-1",
+            "API-TRANSFER-1",
+        );
+
+        expect(result.status).toBe("success");
+        expect(nomba.getTransferStatus).toHaveBeenCalledWith("API-TRANSFER-1");
+        expect(nomba.getTransferByMerchantRef).not.toHaveBeenCalled();
+    });
+
+    it("verifyTransferStatus falls back to the stored provider reference before the internal merchant reference", async () => {
+        const notFound = Object.assign(new Error("HTTP 404 Not Found"), { status: 404 });
+        nomba.getTransferStatus.mockRejectedValue(notFound);
+        nomba.getTransferByMerchantRef.mockResolvedValueOnce({
+            data: { status: "SUCCESSFUL", merchantTxRef: "nomba-ref-1" },
+        });
+
+        const result = await provider.verifyTransferStatus(
+            "merchant-ref-1",
+            "API-TRANSFER-1",
+            "nomba-ref-1",
+        );
+
+        expect(result.status).toBe("success");
+        expect(nomba.getTransferStatus).toHaveBeenCalledWith("API-TRANSFER-1");
+        expect(nomba.getTransferByMerchantRef).toHaveBeenCalledTimes(1);
+        expect(nomba.getTransferByMerchantRef).toHaveBeenCalledWith("nomba-ref-1");
+    });
+
+    it("verifyTransferStatus falls back to the internal merchant reference when stored provider identifiers do not resolve", async () => {
+        const notFound = Object.assign(new Error("HTTP 404 Not Found"), { status: 404 });
+        nomba.getTransferStatus.mockRejectedValue(notFound);
+        nomba.getTransferByMerchantRef
+            .mockRejectedValueOnce(notFound)
+            .mockRejectedValueOnce(notFound)
+            .mockResolvedValueOnce({ data: { status: "SUCCESSFUL", merchantTxRef: "merchant-ref-1" } });
+
+        const result = await provider.verifyTransferStatus(
+            "merchant-ref-1",
+            "API-TRANSFER-1",
+            "nomba-ref-1",
+        );
+
+        expect(result.status).toBe("success");
+        expect(nomba.getTransferByMerchantRef).toHaveBeenNthCalledWith(1, "nomba-ref-1");
+        expect(nomba.getTransferByMerchantRef).toHaveBeenNthCalledWith(2, "API-TRANSFER-1");
+        expect(nomba.getTransferByMerchantRef).toHaveBeenNthCalledWith(3, "merchant-ref-1");
+    });
+
+    it("initializeRefundTransfer stores Nomba transfer id and provider reference separately", async () => {
+        jest.spyOn(provider, "resolveBankAccount").mockResolvedValue({
+            status: true,
+            data: { accountNumber: "1234567890", accountName: "Test User", bankCode: "058" },
+        });
+
+        prisma.payment.create.mockResolvedValue({ id: 41 });
+        prisma.payment.update.mockResolvedValue({ id: 41 });
+        nomba.initiateBankTransfer.mockResolvedValue({
+            data: {
+                id: "API-TRANSFER-1",
+                reference: "NOMBA-REF-1",
+                merchantTxRef: "refund-ref-1",
+                status: "PROCESSING",
+            },
+        });
+
+        const result = await provider.initializeRefundTransfer({
+            userId: 7,
+            orderId: 9,
+            refundAttemptId: 3,
+            amount: 8000,
+            reference: "refund-ref-1",
+            accountNumber: "1234567890",
+            accountName: "Test User",
+            bankCode: "058",
+            bankName: "GTB",
+        });
+
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+            where: { id: 41 },
+            data: {
+                externalReference: "API-TRANSFER-1",
+                providerAccountReference: "NOMBA-REF-1",
+            },
+        });
+        expect(result).toEqual({
+            paymentId: 41,
+            externalReference: "API-TRANSFER-1",
+            providerReference: "NOMBA-REF-1",
+        });
+    });
+
+    it("initializeRefundTransfer falls back to the echoed merchantTxRef when Nomba omits reference", async () => {
+        jest.spyOn(provider, "resolveBankAccount").mockResolvedValue({
+            status: true,
+            data: { accountNumber: "1234567890", accountName: "Test User", bankCode: "058" },
+        });
+
+        prisma.payment.create.mockResolvedValue({ id: 42 });
+        prisma.payment.update.mockResolvedValue({ id: 42 });
+        nomba.initiateBankTransfer.mockResolvedValue({
+            data: {
+                id: "API-TRANSFER-2",
+                status: "PENDING_BILLING",
+                merchantTxRef: "refund-ref-2",
+                meta: {
+                    merchantTxRef: "refund-ref-2",
+                },
+            },
+        });
+
+        const result = await provider.initializeRefundTransfer({
+            userId: 7,
+            orderId: 9,
+            refundAttemptId: 4,
+            amount: 8000,
+            reference: "refund-ref-2",
+            accountNumber: "1234567890",
+            accountName: "Test User",
+            bankCode: "058",
+            bankName: "GTB",
+        });
+
+        expect(prisma.payment.update).toHaveBeenCalledWith({
+            where: { id: 42 },
+            data: {
+                externalReference: "API-TRANSFER-2",
+                providerAccountReference: "refund-ref-2",
+            },
+        });
+        expect(result).toEqual({
+            paymentId: 42,
+            externalReference: "API-TRANSFER-2",
+            providerReference: "refund-ref-2",
+        });
     });
 
     it("verifyTransferStatus maps PROCESSING to 'pending'", async () => {

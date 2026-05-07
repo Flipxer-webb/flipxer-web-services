@@ -715,6 +715,7 @@ model Order {
   ledgerEntryId                String?                // Link to main ledger entry for this order
   user                         User                   @relation(fields: [userId], references: [id])
   payments                     Payment[]
+  refundAttempts               RefundAttempt[]
   failedRollbacks              FailedRollback[]
   // Single column indexes
   @@index([userId])
@@ -813,11 +814,14 @@ model Payment {
   senderAccountNumber          String?
   senderAccountName            String?
   senderBankName               String?
+  senderBankCode               String?
   receivedAmount               Decimal?          @db.Decimal(10, 2)
   createdAt                    DateTime          @default(now())
   updatedAt                    DateTime          @updatedAt
   order                        Order?            @relation(fields: [orderId], references: [id])
   user                         User              @relation(fields: [userId], references: [id])
+  refundAttempts               RefundAttempt[]   @relation("RefundAttemptOriginalPayment")
+  refundPayoutAttempt          RefundAttempt?    @relation("RefundAttemptPayoutPayment")
 
   // Single column indexes
   @@index([sessionId])
@@ -829,6 +833,43 @@ model Payment {
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, status])
   @@map("Payments")
+}
+
+model RefundAttempt {
+  id                           Int               @id @default(autoincrement())
+  orderId                      Int
+  originalPaymentId            Int
+  payoutPaymentId              Int?              @unique
+  provider                     PaymentMethod
+  reasonCode                   String
+  reference                    String            @unique
+  externalReference            String?
+  providerReference            String?
+  amount                       Decimal           @db.Decimal(10, 2)
+  status                       TransactionStatus @default(PENDING)
+  destinationBankAccountName   String?
+  destinationBankAccountNumber String?
+  destinationBankCode          String?
+  destinationBankName          String?
+  failureReason                String?
+  retryCount                   Int               @default(0)
+  initiatedAt                  DateTime?
+  settledAt                    DateTime?
+  verifiedAt                   DateTime?
+  metadata                     Json?
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
+  order                        Order             @relation(fields: [orderId], references: [id])
+  originalPayment              Payment           @relation("RefundAttemptOriginalPayment", fields: [originalPaymentId], references: [id])
+  payoutPayment                Payment?          @relation("RefundAttemptPayoutPayment", fields: [payoutPaymentId], references: [id])
+
+  @@index([orderId])
+  @@index([originalPaymentId])
+  @@index([status])
+  @@index([reasonCode])
+  @@index([provider, reference])
+  @@index([provider, providerReference])
+  @@map("RefundAttempts")
 }
 
 model AllowedIp {
@@ -1227,6 +1268,7 @@ enum TransactionStatus {
 enum TransactionType {
   P2P_PAYMENT
   TRANSFER_FUND
+  BANK_TRANSFER_REFUND
 }
 
 enum TransactionFlow {
